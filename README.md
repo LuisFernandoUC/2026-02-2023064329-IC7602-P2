@@ -184,6 +184,8 @@ La documentación debe cubrir **todos** los componentes implementados, instalado
 
 ### 8.5 REST API Node.js
 
+Propuesta de [datos y endpoints iniciales](Docs/Contratos/API-Node.md), con los acuerdos pendientes para integrar la UI y las cachés zonales.
+
 <!-- Endpoints, mecanismo de autenticación y autorización elegido (investigado y justificado), verificación de dominios por registro TXT, deploy en Vercel. -->
 
 ### 8.6 UI
