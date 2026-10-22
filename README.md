@@ -161,6 +161,9 @@ Toda configuración se inyecta por variables de entorno. Documentar aquí cada u
 | Rest API Java   | _TODO_   |             |                             |
 | API Node.js     | `HOST`   | Dirección del servidor local | `127.0.0.1` |
 | API Node.js     | `PORT`   | Puerto del servidor local | `3000` |
+| API Node.js     | `FIREBASE_PROJECT_ID` | ID del proyecto de Firebase | `project_id` de la cuenta de servicio |
+| API Node.js     | `FIREBASE_CLIENT_EMAIL` | Correo de la cuenta de servicio | `client_email` |
+| API Node.js     | `FIREBASE_PRIVATE_KEY` | Clave privada de la cuenta de servicio | `private_key`, entre comillas dobles |
 | UI              | _TODO_   |             |                             |
 
 ## 8. Documentación por componente
@@ -186,6 +189,8 @@ La documentación debe cubrir **todos** los componentes implementados, instalado
 ### 8.5 REST API Node.js
 
 La base de la API incluye `GET /api/health`. Ver [cómo ejecutarla y probarla](api-node/README.md).
+
+La conexión a Firestore se configura con variables de entorno. El comando `npm run check:firestore`, desde `api-node/`, permite comprobar el acceso. Ver [configuración de Firestore](api-node/README.md#configurar-firestore).
 
 Propuesta de [datos y endpoints iniciales](Docs/Contratos/API-Node.md), con los acuerdos pendientes para integrar la UI y las cachés zonales.
 
@@ -214,6 +219,7 @@ Cada prueba debe incluir los pasos para reproducirla. El sistema debe probarse c
 | 7   | Autenticación con usuario y contraseña (sesión)  | _TODO_                |                    |                    |
 | 8   | Algoritmos de reemplazo (LRU, LFU, FIFO, MRU, Random) | _TODO_           |                    |                    |
 | 9   | Límite de tamaño de caché por dominio            | _TODO_                |                    |                    |
+| 10  | Conexión API Node.js con Firestore | Desde `api-node/`, configurar `.env` y ejecutar `npm run check:firestore`. | `Conexión con Firestore verificada.` | Correcto; consulta de lectura realizada. |
 
 Recomendación del enunciado: usar `nslookup` para el DNS Interceptor y Postman/`curl` para la caché zonal.
 
