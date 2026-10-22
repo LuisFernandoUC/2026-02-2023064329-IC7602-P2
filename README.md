@@ -50,7 +50,7 @@ El sistema intercepta peticiones DNS de dominios específicos, las redirige a un
 | Zonal Cache        | GNU C                        | Kubernetes (Helm)    |
 | Rest API           | Java                         | Kubernetes (Helm)    |
 | Apache Server      | Apache HTTP Server           | Kubernetes (Helm)    |
-| REST API (Node.js) | Node.js + Firebase/Firestore | Vercel               |
+| REST API (Node.js) | Node.js + Express + Firebase/Firestore | Vercel               |
 | UI                 | React + Vite + Tailwind CSS  | Vercel               |
 
 ## 2. Integrantes
@@ -112,7 +112,7 @@ Zonal Cache ──configuración / autenticación──▶ REST API Node.js ─�
 | Helm                           | _TODO_  | Instalar los charts                      |
 | GCC / Make                     | _TODO_  | Compilar DNS Interceptor y Zonal Cache   |
 | JDK + Maven/Gradle             | _TODO_  | Compilar la Rest API Java                |
-| Node.js                        | _TODO_  | API Node.js y UI                         |
+| Node.js                        | 24.x para la API; UI pendiente | API Node.js y UI                         |
 | `nslookup`, `curl` / Postman   | —       | Probar el sistema                        |
 
 ## 6. Cómo ejecutar el proyecto
@@ -159,7 +159,8 @@ Toda configuración se inyecta por variables de entorno. Documentar aquí cada u
 | DNS Interceptor | _TODO_   |             |                             |
 | Zonal Cache     | _TODO_   |             |                             |
 | Rest API Java   | _TODO_   |             |                             |
-| API Node.js     | _TODO_   |             |                             |
+| API Node.js     | `HOST`   | Dirección del servidor local | `127.0.0.1` |
+| API Node.js     | `PORT`   | Puerto del servidor local | `3000` |
 | UI              | _TODO_   |             |                             |
 
 ## 8. Documentación por componente
@@ -183,6 +184,8 @@ La documentación debe cubrir **todos** los componentes implementados, instalado
 <!-- Página HTML básica, imagen y despliegue. -->
 
 ### 8.5 REST API Node.js
+
+La base de la API incluye `GET /api/health`. Ver [cómo ejecutarla y probarla](api-node/README.md).
 
 Propuesta de [datos y endpoints iniciales](Docs/Contratos/API-Node.md), con los acuerdos pendientes para integrar la UI y las cachés zonales.
 
