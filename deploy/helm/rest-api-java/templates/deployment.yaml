@@ -22,6 +22,9 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.containerPort }}
+          env:
+            - name: PORT
+              value: {{ .Values.containerPort | quote }}
           readinessProbe:
             httpGet:
               path: /health
