@@ -157,7 +157,7 @@ Toda configuración se inyecta por variables de entorno. Documentar aquí cada u
 | Componente      | Variable | Descripción | Ejemplo / valor por defecto |
 | --------------- | -------- | ----------- | --------------------------- |
 | DNS Interceptor | _TODO_   |             |                             |
-| Zonal Cache     | _TODO_   |             |                             |
+| Zonal Cache     | `ZC_*`   | Ver la tabla completa en [zonal-cache/README.md](zonal-cache/README.md#3-variables-de-entorno) | — |
 | Rest API Java   | _TODO_   |             |                             |
 | API Node.js     | _TODO_   |             |                             |
 | UI              | _TODO_   |             |                             |
@@ -172,7 +172,7 @@ La documentación debe cubrir **todos** los componentes implementados, instalado
 
 ### 8.2 Zonal Cache
 
-<!-- Servidor HTTP, caché en disco y límite por dominio, algoritmos de reemplazo (LRU, LFU, FIFO, MRU, Random), configuración desde Firebase, autenticación (x-api-key y usuario/contraseña con sesión), SSL termination, despliegue (Helm). -->
+Documentación completa en [zonal-cache/README.md](zonal-cache/README.md): flujo de una petición, caché en disco con límites por dominio y por URL, algoritmos de reemplazo (LRU, LFU, FIFO, MRU, Random), autenticación (`x-api-key` y usuario/contraseña con sesión JWT), SSL termination, contrato con el API Node.js, pruebas unitarias y despliegue con Helm ([deploy/helm/zonal-cache](deploy/helm/zonal-cache)).
 
 ### 8.3 Rest API (Java)
 
