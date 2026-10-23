@@ -1,0 +1,91 @@
+# Valores por defecto del chart zonal-cache.
+# Todo lo que la caché necesita llega como variable de entorno (ver zonal-cache/README.md).
+
+image:
+  repository: zonal-cache
+  tag: latest
+  # En minikube/kind con imágenes locales usar IfNotPresent o Never.
+  pullPolicy: IfNotPresent
+
+# Una caché (Deployment + Service) por zona. El DNS Interceptor responde con la IP
+# del Service de la zona que corresponde al país del cliente.
+zones:
+  - name: america
+    # IP fija opcional del Service (debe estar dentro del rango de Services del cluster),
+    # útil para configurar el DNS Interceptor sin depender de IPs dinámicas.
+    clusterIP: ""
+  - name: europa
+    clusterIP: ""
+  - name: asia
+    clusterIP: ""
+
+replicaCount: 1
+
+service:
+  # ClusterIP | NodePort | LoadBalancer
+  type: ClusterIP
+  httpPort: 80
+  httpsPort: 443
+
+# Puertos internos del contenedor (ZC_HTTP_PORT / ZC_HTTPS_PORT).
+containerPorts:
+  http: 8080
+  https: 8443
+
+config:
+  # Endpoint del API Node.js (Vercel) que devuelve la configuración de dominios.
+  url: ""
+  refreshSeconds: 30
+  # Alternativa sin API (pruebas locales): configuración inline montada como archivo.
+  # Si inline no está vacío se usa en lugar de config.url.
+  inline: {}
+  #  domains:
+  #    - name: apache.p2.local
+  #      origin: http://apache
+  #      maxCacheSize: 10485760
+  #      urls:
+  #        - pattern: "/*"
+  #          cacheSize: 5242880
+  #          policy: LRU
+  #          auth: none
+  #          fileTypes:
+  #            - { extension: html, ttl: 60 }
+
+# Formulario de login de la UI (Vercel) para URLs con usuario y contraseña.
+loginUrl: ""
+
+origin:
+  timeoutSeconds: 15
+  verifyTls: true
+
+maxBodyBytes: 10485760
+logLevel: info
+
+secrets:
+  # Si existingSecret tiene valor se usa ese Secret (claves: config-token, session-secret).
+  existingSecret: ""
+  # Token Bearer para consultar el API Node.js.
+  configToken: ""
+  # Secreto HS256 compartido con el API Node.js para validar sesiones.
+  sessionSecret: ""
+
+tls:
+  # SSL termination en la caché (puerto HTTPS).
+  enabled: true
+  # Secret existente de tipo kubernetes.io/tls; si está vacío se genera uno autofirmado.
+  existingSecret: ""
+  commonName: zonal-cache
+  altNames: []
+
+cache:
+  # Volumen de la caché en disco (emptyDir). sizeLimit debe ser mayor que la suma
+  # de los maxCacheSize de los dominios.
+  sizeLimit: 1Gi
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi

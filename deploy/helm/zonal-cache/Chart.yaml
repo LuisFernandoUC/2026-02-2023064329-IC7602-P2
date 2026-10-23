@@ -1,0 +1,6 @@
+apiVersion: v2
+name: zonal-cache
+description: Caché HTTP zonal en GNU C (Proyecto 2, IC7602). Despliega una caché por zona.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

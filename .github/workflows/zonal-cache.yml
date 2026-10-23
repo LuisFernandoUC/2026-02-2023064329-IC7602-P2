@@ -1,0 +1,30 @@
+name: zonal-cache
+
+on:
+  push:
+    paths:
+      - "zonal-cache/**"
+      - ".github/workflows/zonal-cache.yml"
+  pull_request:
+    paths:
+      - "zonal-cache/**"
+      - ".github/workflows/zonal-cache.yml"
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: zonal-cache
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar dependencias
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libcurl4-openssl-dev libssl-dev libcjson-dev
+      - name: Compilar
+        run: make
+      - name: Pruebas unitarias
+        run: make test
+      - name: Imagen Docker (incluye pruebas)
+        run: docker build --target test .
