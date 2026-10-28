@@ -1,1 +1,57 @@
 @import "tailwindcss";
+
+@theme {
+  --color-background: #f8f9ff;
+  --color-surface: #ffffff;
+  --color-ink: #0b1c30;
+  --color-muted: #434655;
+  --color-primary: #004ac6;
+  --color-primary-hover: #003ea8;
+  --color-soft: #eff4ff;
+  --color-line: #dce3ef;
+}
+
+@layer base {
+  body {
+    margin: 0;
+    min-width: 320px;
+    background: var(--color-background);
+    color: var(--color-ink);
+    font-family: Inter, system-ui, sans-serif;
+  }
+
+  button, input {
+    font: inherit;
+  }
+
+  button:not(:disabled), a {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 3px;
+  }
+}
+
+@layer components {
+  .button-primary {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded bg-primary px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .text-link {
+    @apply rounded text-primary underline-offset-4 hover:underline;
+  }
+
+  .field-label {
+    @apply mb-2 block text-sm font-medium;
+  }
+
+  .field-input {
+    @apply min-h-11 w-full rounded border border-line bg-surface px-3 py-2 text-sm placeholder:text-slate-400 focus:border-primary focus:outline-2 focus:outline-offset-1 focus:outline-primary;
+  }
+
+  .form-message {
+    @apply rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900;
+  }
+}
