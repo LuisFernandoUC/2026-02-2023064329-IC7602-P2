@@ -6,6 +6,7 @@ import Domains from './pages/Domains.jsx';
 export default function App() {
   const [route, setRoute] = useState(window.location.hash);
   const verificationId = route.match(/^#\/dominios\/([^/]+)\/verificar$/)?.[1];
+  const domainId = route.match(/^#\/dominios\/([^/]+)$/)?.[1];
 
   useEffect(() => {
     function handleNavigation() {
@@ -21,11 +22,11 @@ export default function App() {
       '#/crear-cuenta': 'Crear cuenta',
       '#/dominios': 'Mis dominios',
     };
-    const title = verificationId ? 'Verificar dominio' : titles[route] || 'Iniciar sesión';
+    const title = verificationId ? 'Verificar dominio' : domainId ? 'Detalle del dominio' : titles[route] || 'Iniciar sesión';
     document.title = `${title} | Proxy cache`;
-  }, [route, verificationId]);
+  }, [route, verificationId, domainId]);
 
   if (route === '#/crear-cuenta') return <Register />;
-  if (route === '#/dominios' || verificationId) return <Domains verificationId={verificationId} />;
+  if (route === '#/dominios' || verificationId || domainId) return <Domains verificationId={verificationId} domainId={domainId} />;
   return <Login />;
 }

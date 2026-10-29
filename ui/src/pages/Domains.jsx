@@ -2,19 +2,30 @@ import { useState } from 'react';
 import { Brand } from '../components/Layout.jsx';
 import AddDomainDialog from '../components/AddDomainDialog.jsx';
 import VerifyDomain from './VerifyDomain.jsx';
+import DomainDetail from './DomainDetail.jsx';
 
 const exampleDomains = [
-  { id: 'example', name: 'example.com', verified: true, cacheSize: '500 MB' },
+  {
+    id: 'example',
+    name: 'example.com',
+    verified: true,
+    cacheSize: '500 MB',
+    rules: [
+      { id: 'images', pathPattern: '/imagenes/*', cacheSize: '200 MB', fileTypes: ['png', 'jpg', 'webp'], authMode: 'api-key' },
+      { id: 'private', pathPattern: '/privado/*', cacheSize: '150 MB', fileTypes: ['pdf', 'docx', 'html'], authMode: 'password' },
+    ],
+  },
   {
     id: 'static',
     name: 'static.example.net',
     verified: false,
     cacheSize: '250 MB',
     verificationRecord: { name: '_verificacion.static.example.net', value: 'token-de-ejemplo' },
+    rules: [],
   },
 ];
 
-export default function Domains({ verificationId }) {
+export default function Domains({ verificationId, domainId }) {
   const [addingDomain, setAddingDomain] = useState(false);
 
   return (
@@ -37,6 +48,8 @@ export default function Domains({ verificationId }) {
       <main className="mx-auto max-w-7xl px-6 py-10">
         {verificationId ? (
           <VerifyDomain key={verificationId} domain={exampleDomains.find((domain) => domain.id === verificationId)} />
+        ) : domainId ? (
+          <DomainDetail domain={exampleDomains.find((domain) => domain.id === domainId)} />
         ) : (
           <>
             <div className="flex flex-wrap items-center justify-between gap-5 border-b border-line pb-7">
@@ -76,7 +89,7 @@ export default function Domains({ verificationId }) {
                       <td className="px-5 py-5">
                         <div className="flex justify-end gap-4 whitespace-nowrap">
                           {!domain.verified && <a href={`#/dominios/${domain.id}/verificar`} className="text-link">Verificar</a>}
-                          <button type="button" disabled title="Disponible en el detalle del dominio" className="cursor-not-allowed text-primary opacity-50">Abrir</button>
+                          <a href={`#/dominios/${domain.id}`} className="text-link" aria-label={`Abrir ${domain.name}`}>Abrir</a>
                           <button type="button" disabled title="Disponible al conectar la administración de dominios" className="cursor-not-allowed text-red-700 opacity-50">Eliminar</button>
                         </div>
                       </td>
