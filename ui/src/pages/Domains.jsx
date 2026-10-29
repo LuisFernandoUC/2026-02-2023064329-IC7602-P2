@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { Brand } from '../components/Layout.jsx';
+import AddDomainDialog from '../components/AddDomainDialog.jsx';
 
 const exampleDomains = [
   { id: 'example', name: 'example.com', verified: true, cacheSize: '500 MB' },
@@ -6,6 +8,8 @@ const exampleDomains = [
 ];
 
 export default function Domains() {
+  const [addingDomain, setAddingDomain] = useState(false);
+
   return (
     <div className="min-h-screen">
       <header className="border-b border-line bg-surface">
@@ -29,7 +33,7 @@ export default function Domains() {
             <h1 className="text-3xl font-semibold tracking-tight">Mis dominios</h1>
             <p className="mt-3 text-muted">Administra tus dominios y sus reglas de caché.</p>
           </div>
-          <button type="button" disabled title="Se habilitará al agregar dominios" className="button-primary">
+          <button type="button" onClick={() => setAddingDomain(true)} className="button-primary">
             <span aria-hidden="true" className="text-xl leading-none">+</span> Agregar dominio
           </button>
         </div>
@@ -71,6 +75,7 @@ export default function Domains() {
           </table>
         </div>
       </main>
+      {addingDomain && <AddDomainDialog onClose={() => setAddingDomain(false)} />}
     </div>
   );
 }
