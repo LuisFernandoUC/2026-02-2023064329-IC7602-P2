@@ -39,9 +39,9 @@ export default function DomainDetail({ domain }) {
             <h2 id="rules-title" className="text-xl font-semibold">Reglas de URL</h2>
             <span className="rounded-full bg-soft px-3 py-1 text-xs text-muted">{rules.length} {rules.length === 1 ? 'regla configurada' : 'reglas configuradas'}</span>
           </div>
-          <button type="button" disabled title="Disponible en el formulario de reglas" className="button-primary">
+          <a href={`#/dominios/${domain.id}/reglas/nueva`} className="button-primary">
             <span aria-hidden="true" className="text-xl leading-none">+</span> Agregar regla
-          </button>
+          </a>
         </div>
 
         {rules.length === 0 ? (
@@ -69,13 +69,13 @@ export default function DomainDetail({ domain }) {
                     <td className="whitespace-nowrap px-5 py-5 font-mono text-muted">{rule.cacheSize}</td>
                     <td className="px-5 py-5">
                       <ul className="flex flex-wrap gap-1.5" aria-label="Tipos de archivo">
-                        {rule.fileTypes.map((extension) => <li key={extension} className="rounded bg-soft px-2 py-1 font-mono text-xs">{extension}</li>)}
+                        {rule.fileTypes.map((type) => <li key={type.extension} className="rounded bg-soft px-2 py-1 font-mono text-xs">{type.extension}</li>)}
                       </ul>
                     </td>
                     <td className="whitespace-nowrap px-5 py-5">{rule.authMode === 'api-key' ? 'API key (x-api-key)' : 'Usuario y contraseña'}</td>
                     <td className="px-5 py-5">
                       <div className="flex justify-end gap-4">
-                        <button type="button" disabled title="Disponible en el formulario de reglas" aria-label={`Editar regla ${rule.pathPattern}`} className="cursor-not-allowed text-primary opacity-50">Editar</button>
+                        <a href={`#/dominios/${domain.id}/reglas/${rule.id}/editar`} aria-label={`Editar regla ${rule.pathPattern}`} className="text-link">Editar</a>
                         <button type="button" disabled title="Disponible al conectar la administración de reglas" aria-label={`Eliminar regla ${rule.pathPattern}`} className="cursor-not-allowed text-red-700 opacity-50">Eliminar</button>
                       </div>
                     </td>

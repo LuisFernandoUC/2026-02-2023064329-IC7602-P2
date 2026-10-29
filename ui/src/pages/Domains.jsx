@@ -3,6 +3,7 @@ import { Brand } from '../components/Layout.jsx';
 import AddDomainDialog from '../components/AddDomainDialog.jsx';
 import VerifyDomain from './VerifyDomain.jsx';
 import DomainDetail from './DomainDetail.jsx';
+import RuleForm from './RuleForm.jsx';
 
 const exampleDomains = [
   {
@@ -11,8 +12,22 @@ const exampleDomains = [
     verified: true,
     cacheSize: '500 MB',
     rules: [
-      { id: 'images', pathPattern: '/imagenes/*', cacheSize: '200 MB', fileTypes: ['png', 'jpg', 'webp'], authMode: 'api-key' },
-      { id: 'private', pathPattern: '/privado/*', cacheSize: '150 MB', fileTypes: ['pdf', 'docx', 'html'], authMode: 'password' },
+      {
+        id: 'images', pathPattern: '/imagenes/*', cacheSize: '200 MB', authMode: 'api-key',
+        fileTypes: [
+          { extension: 'png', ttlSeconds: 86400, replacementPolicy: 'LRU' },
+          { extension: 'jpg', ttlSeconds: 43200, replacementPolicy: 'LFU' },
+          { extension: 'webp', ttlSeconds: 86400, replacementPolicy: 'FIFO' },
+        ],
+      },
+      {
+        id: 'private', pathPattern: '/privado/*', cacheSize: '150 MB', authMode: 'password',
+        fileTypes: [
+          { extension: 'pdf', ttlSeconds: 3600, replacementPolicy: 'LRU' },
+          { extension: 'docx', ttlSeconds: 3600, replacementPolicy: 'LRU' },
+          { extension: 'html', ttlSeconds: 300, replacementPolicy: 'LRU' },
+        ],
+      },
     ],
   },
   {
@@ -25,7 +40,7 @@ const exampleDomains = [
   },
 ];
 
-export default function Domains({ verificationId, domainId }) {
+export default function Domains({ verificationId, domainId, ruleForm }) {
   const [addingDomain, setAddingDomain] = useState(false);
 
   return (
@@ -48,6 +63,8 @@ export default function Domains({ verificationId, domainId }) {
       <main className="mx-auto max-w-7xl px-6 py-10">
         {verificationId ? (
           <VerifyDomain key={verificationId} domain={exampleDomains.find((domain) => domain.id === verificationId)} />
+        ) : ruleForm ? (
+          <RuleForm key={`${ruleForm.domainId}/${ruleForm.ruleId ?? 'new'}`} domain={exampleDomains.find((domain) => domain.id === ruleForm.domainId)} ruleId={ruleForm.ruleId} />
         ) : domainId ? (
           <DomainDetail domain={exampleDomains.find((domain) => domain.id === domainId)} />
         ) : (
