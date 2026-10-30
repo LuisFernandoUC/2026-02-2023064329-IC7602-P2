@@ -12,11 +12,11 @@ export function Brand({ href = '#/iniciar-sesion' }) {
   );
 }
 
-export function AuthLayout({ title, description, children, footer }) {
+export function AuthLayout({ title, description, children, footer, brandHref = '#/iniciar-sesion' }) {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="px-6 py-5 lg:px-10">
-        <Brand />
+        <Brand href={brandHref} />
       </header>
       <main className="flex flex-1 items-center justify-center px-6 py-10">
         <section className="w-full max-w-md rounded-xl bg-surface p-8 shadow-sm" aria-labelledby="page-title">
