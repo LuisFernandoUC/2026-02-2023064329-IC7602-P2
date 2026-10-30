@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Brand } from '../components/Layout.jsx';
 import AddDomainDialog from '../components/AddDomainDialog.jsx';
+import DeleteDialog from '../components/DeleteDialog.jsx';
 import VerifyDomain from './VerifyDomain.jsx';
 import DomainDetail from './DomainDetail.jsx';
 import RuleForm from './RuleForm.jsx';
@@ -47,6 +48,8 @@ const exampleDomains = [
 
 export default function Domains({ verificationId, domainId, ruleForm }) {
   const [addingDomain, setAddingDomain] = useState(false);
+  const [deletingDomain, setDeletingDomain] = useState(null);
+  const [message, setMessage] = useState('');
 
   return (
     <div className="min-h-screen">
@@ -85,6 +88,7 @@ export default function Domains({ verificationId, domainId, ruleForm }) {
             </div>
 
             <p className="my-5 text-sm text-muted">Vista con datos de ejemplo. Todavía no se cargan los dominios de tu cuenta.</p>
+            {message && <p role="status" className="form-message mb-5">{message}</p>}
 
             <div className="overflow-x-auto rounded-lg border border-line bg-surface">
               <table className="w-full text-left text-sm">
@@ -112,7 +116,7 @@ export default function Domains({ verificationId, domainId, ruleForm }) {
                         <div className="flex justify-end gap-4 whitespace-nowrap">
                           {!domain.verified && <a href={`#/dominios/${domain.id}/verificar`} className="text-link">Verificar</a>}
                           <a href={`#/dominios/${domain.id}`} className="text-link" aria-label={`Abrir ${domain.name}`}>Abrir</a>
-                          <button type="button" disabled title="Disponible al conectar la administración de dominios" className="cursor-not-allowed text-red-700 opacity-50">Eliminar</button>
+                          <button type="button" onClick={() => { setDeletingDomain(domain); setMessage(''); }} aria-label={`Eliminar dominio ${domain.name}`} className="rounded text-red-700 hover:underline">Eliminar</button>
                         </div>
                       </td>
                     </tr>
@@ -124,6 +128,16 @@ export default function Domains({ verificationId, domainId, ruleForm }) {
         )}
       </main>
       {addingDomain && <AddDomainDialog onClose={() => setAddingDomain(false)} />}
+      {deletingDomain && (
+        <DeleteDialog
+          title="¿Eliminar dominio?"
+          name={deletingDomain.name}
+          description="Se eliminarán también sus reglas, usuarios, claves y sesiones."
+          confirmLabel="Eliminar dominio"
+          onClose={() => setDeletingDomain(null)}
+          onConfirm={() => setMessage('Eliminar dominios aún no está disponible.')}
+        />
+      )}
     </div>
   );
 }

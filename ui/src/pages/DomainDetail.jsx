@@ -1,4 +1,10 @@
+import { useState } from 'react';
+import DeleteDialog from '../components/DeleteDialog.jsx';
+
 export default function DomainDetail({ domain }) {
+  const [deletingRule, setDeletingRule] = useState(null);
+  const [message, setMessage] = useState('');
+
   if (!domain) {
     return (
       <>
@@ -32,6 +38,7 @@ export default function DomainDetail({ domain }) {
       </div>
 
       <p className="my-5 text-sm text-muted">Vista con datos de ejemplo. Todavía no se cargan las reglas de tu cuenta.</p>
+      {message && <p role="status" className="form-message mb-5">{message}</p>}
 
       <section aria-labelledby="rules-title">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
@@ -76,7 +83,7 @@ export default function DomainDetail({ domain }) {
                     <td className="px-5 py-5">
                       <div className="flex justify-end gap-4">
                         <a href={`#/dominios/${domain.id}/reglas/${rule.id}/editar`} aria-label={`Editar regla ${rule.pathPattern}`} className="text-link">Editar</a>
-                        <button type="button" disabled title="Disponible al conectar la administración de reglas" aria-label={`Eliminar regla ${rule.pathPattern}`} className="cursor-not-allowed text-red-700 opacity-50">Eliminar</button>
+                        <button type="button" onClick={() => { setDeletingRule(rule); setMessage(''); }} aria-label={`Eliminar regla ${rule.pathPattern}`} className="rounded text-red-700 hover:underline">Eliminar</button>
                       </div>
                     </td>
                   </tr>
@@ -86,6 +93,16 @@ export default function DomainDetail({ domain }) {
           </div>
         )}
       </section>
+      {deletingRule && (
+        <DeleteDialog
+          title="¿Eliminar regla?"
+          name={deletingRule.pathPattern}
+          description="Se eliminarán también sus usuarios, claves y sesiones."
+          confirmLabel="Eliminar regla"
+          onClose={() => setDeletingRule(null)}
+          onConfirm={() => setMessage('Eliminar reglas aún no está disponible.')}
+        />
+      )}
     </>
   );
 }
