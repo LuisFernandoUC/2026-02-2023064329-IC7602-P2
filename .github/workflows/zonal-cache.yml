@@ -4,10 +4,12 @@ on:
   push:
     paths:
       - "zonal-cache/**"
+      - "deploy/helm/zonal-cache/**"
       - ".github/workflows/zonal-cache.yml"
   pull_request:
     paths:
       - "zonal-cache/**"
+      - "deploy/helm/zonal-cache/**"
       - ".github/workflows/zonal-cache.yml"
 
 jobs:
@@ -28,3 +30,18 @@ jobs:
         run: make test
       - name: Imagen Docker (incluye pruebas)
         run: docker build --target test .
+
+  helm-chart:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: helm lint
+        run: helm lint deploy/helm/zonal-cache --set config.url=http://api.example/config
+      - name: helm template (API remota)
+        run: helm template zc deploy/helm/zonal-cache --set config.url=http://api.example/config > /dev/null
+      - name: helm template (configuración inline, sin TLS)
+        run: |
+          helm template zc deploy/helm/zonal-cache \
+            --set tls.enabled=false \
+            --set-json 'config.inline={"domains":[]}' > /dev/null
