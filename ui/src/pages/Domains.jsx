@@ -14,6 +14,7 @@ const exampleDomains = [
     rules: [
       {
         id: 'images', pathPattern: '/imagenes/*', cacheSize: '200 MB', authMode: 'api-key',
+        keys: [{ id: 'clave-ejemplo-1' }, { id: 'clave-ejemplo-2' }],
         fileTypes: [
           { extension: 'png', ttlSeconds: 86400, replacementPolicy: 'LRU' },
           { extension: 'jpg', ttlSeconds: 43200, replacementPolicy: 'LFU' },
@@ -22,6 +23,10 @@ const exampleDomains = [
       },
       {
         id: 'private', pathPattern: '/privado/*', cacheSize: '150 MB', authMode: 'password',
+        users: [
+          { id: 'usuario-ejemplo-1', username: 'usuario_cache' },
+          { id: 'usuario-ejemplo-2', username: 'operador_zona' },
+        ],
         fileTypes: [
           { extension: 'pdf', ttlSeconds: 3600, replacementPolicy: 'LRU' },
           { extension: 'docx', ttlSeconds: 3600, replacementPolicy: 'LRU' },

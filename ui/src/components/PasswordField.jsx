@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-export default function PasswordField({ id, label = 'Contraseña', autoComplete }) {
+export default function PasswordField({ id, label = 'Contraseña', autoComplete, required = true }) {
   const [visible, setVisible] = useState(false);
 
   return (
@@ -13,7 +13,7 @@ export default function PasswordField({ id, label = 'Contraseña', autoComplete 
           type={visible ? 'text' : 'password'}
           autoComplete={autoComplete}
           className="field-input pr-12"
-          required
+          required={required}
         />
         <button
           type="button"
