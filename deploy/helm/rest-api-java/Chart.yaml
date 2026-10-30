@@ -1,0 +1,6 @@
+apiVersion: v2
+name: rest-api-java
+description: Rest API en Java (Proyecto 2, IC7602).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
