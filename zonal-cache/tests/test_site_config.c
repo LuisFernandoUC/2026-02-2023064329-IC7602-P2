@@ -112,8 +112,57 @@ TEST(empty_domain_list_is_valid)
     site_config_free(cfg);
 }
 
+/* Mismo contenido con los nombres de Docs/Contratos/API-Node.md. */
+TEST(accepts_api_node_field_names)
+{
+    const char *json =
+        "{ \"domains\": [ { \"name\": \"img.local\", \"maxCacheBytes\": 2048,"
+        "  \"rules\": [ { \"pathPattern\": \"/imagenes/*\", \"maxCacheBytes\": 1024,"
+        "    \"authMode\": \"api-key\","
+        "    \"fileTypes\": [ { \"extension\": \"png\", \"ttlSeconds\": 3600, \"replacementPolicy\": \"MRU\" } ],"
+        "    \"apiKeys\": [ { \"id\": \"k1\", \"keyHash\": \"ABC\" } ] } ] } ] }";
+    char err[128] = "";
+    site_config_t *cfg = site_config_parse(json, err, sizeof(err));
+    CHECK(cfg != NULL);
+    if (!cfg) {
+        fprintf(stderr, "    error: %s\n", err);
+        return;
+    }
+    const domain_rule_t *d = &cfg->domains[0];
+    CHECK_EQ_INT(d->max_cache_size, 2048);
+    CHECK_EQ_INT(d->rule_count, 1);
+    const url_rule_t *r = &d->rules[0];
+    CHECK_EQ_STR(r->pattern, "/imagenes/*");
+    CHECK_EQ_INT(r->cache_size, 1024);
+    CHECK_EQ_INT(r->auth, AUTH_API_KEY);
+    CHECK_EQ_INT(r->policy, POLICY_MRU); /* tomada de replacementPolicy */
+    CHECK_EQ_INT(url_rule_ttl_for_path(r, "/imagenes/a.png"), 3600);
+    CHECK_EQ_INT(r->api_key_count, 1);
+    CHECK_EQ_STR(r->api_key_hashes[0], "abc");
+    site_config_free(cfg);
+}
+
+TEST(explicit_policy_wins_over_file_type_policy)
+{
+    const char *json =
+        "{ \"domains\": [ { \"name\": \"a\", \"maxCacheSize\": 1, \"urls\": [ { \"pattern\": \"/*\","
+        "  \"cacheSize\": 1, \"policy\": \"FIFO\","
+        "  \"fileTypes\": [ { \"extension\": \"png\", \"ttl\": 1, \"replacementPolicy\": \"MRU\" } ] } ] } ] }";
+    site_config_t *cfg = site_config_parse(json, NULL, 0);
+    CHECK(cfg != NULL);
+    if (cfg)
+        CHECK_EQ_INT(cfg->domains[0].rules[0].policy, POLICY_FIFO);
+    site_config_free(cfg);
+
+    const char *bad =
+        "{ \"domains\": [ { \"name\": \"a\", \"maxCacheSize\": 1, \"urls\": [ { \"pattern\": \"/*\","
+        "  \"cacheSize\": 1, \"fileTypes\": [ { \"extension\": \"png\", \"ttl\": 1, \"replacementPolicy\": \"ARC\" } ] } ] } ] }";
+    CHECK(site_config_parse(bad, NULL, 0) == NULL);
+}
+
 TEST(auth_mode_names)
 {
+    CHECK_EQ_INT(auth_mode_from_string("api-key", &(auth_mode_t){0}), 0);
     auth_mode_t m;
     CHECK_EQ_INT(auth_mode_from_string("API_KEY", &m), 0);
     CHECK_EQ_INT(m, AUTH_API_KEY);
@@ -132,5 +181,7 @@ void suite_site_config(void)
     RUN(ttl_by_file_type);
     RUN(rejects_invalid_configs);
     RUN(empty_domain_list_is_valid);
+    RUN(accepts_api_node_field_names);
+    RUN(explicit_policy_wins_over_file_type_policy);
     RUN(auth_mode_names);
 }

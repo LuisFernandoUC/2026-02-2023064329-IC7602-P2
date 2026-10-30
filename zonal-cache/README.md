@@ -198,6 +198,19 @@ Se requiere `ZC_CONFIG_URL` o `ZC_CONFIG_FILE`.
 | `urls[].fileTypes` | Extensión y TTL en segundos. `*` = cualquier tipo; TTL `0` = no guardar. Las rutas sin extensión cuentan como `html` |
 | `urls[].apiKeys` | SHA-256 de cada API key válida (cadenas, u objetos `{ "hash": "..." }`) |
 
+También se aceptan los nombres de campos del borrador del API Node.js ([Docs/Contratos/API-Node.md](../Docs/Contratos/API-Node.md)), así la caché funciona con cualquiera de los dos formatos mientras se cierra el contrato:
+
+| Campo de la caché | Alternativa aceptada |
+| --- | --- |
+| `maxCacheSize` (dominio) | `maxCacheBytes` |
+| `urls` | `rules` |
+| `pattern` | `pathPattern` |
+| `cacheSize` (URL) | `maxCacheBytes` |
+| `auth` | `authMode` (`api-key`, `password`) |
+| `fileTypes[].ttl` | `fileTypes[].ttlSeconds` |
+| `policy` | `fileTypes[0].replacementPolicy` si la URL no define `policy` |
+| `apiKeys[].hash` | `apiKeys[].keyHash` |
+
 Solo se guardan respuestas `200` a `GET` cuyo tipo de archivo tiene TTL. El resto pasa directo al origen (`X-Cache: BYPASS`).
 
 Las API keys se guardan como hash: el API nunca debe mandar la clave en texto plano. En Node.js:

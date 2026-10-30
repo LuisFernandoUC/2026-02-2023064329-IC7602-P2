@@ -21,18 +21,29 @@ static void set_err(char *err, size_t err_size, const char *fmt, ...)
     va_end(ap);
 }
 
-static char *dup_json_string(const cJSON *obj, const char *name)
+/*
+ * Devuelve el campo name o, si no existe, el campo alias (puede ser NULL).
+ * Permite leer tanto los nombres de este módulo ("pattern", "cacheSize", ...) como
+ * los del contrato del API Node.js ("pathPattern", "maxCacheBytes", ...).
+ */
+static const cJSON *field(const cJSON *obj, const char *name, const char *alias)
 {
     const cJSON *item = cJSON_GetObjectItemCaseSensitive(obj, name);
+    if (!item && alias)
+        item = cJSON_GetObjectItemCaseSensitive(obj, alias);
+    return item;
+}
+
+static char *dup_json_string(const cJSON *item)
+{
     if (!cJSON_IsString(item) || !item->valuestring || !item->valuestring[0])
         return NULL;
     return zc_strndup(item->valuestring, strlen(item->valuestring));
 }
 
 /* Lee un número no negativo; acepta también cadenas numéricas ("1048576"). */
-static int read_size(const cJSON *obj, const char *name, double *out)
+static int read_size(const cJSON *item, double *out)
 {
-    const cJSON *item = cJSON_GetObjectItemCaseSensitive(obj, name);
     if (cJSON_IsNumber(item)) {
         *out = item->valuedouble;
     } else if (cJSON_IsString(item) && item->valuestring) {
@@ -50,8 +61,8 @@ int auth_mode_from_string(const char *s, auth_mode_t *out)
 {
     if (!s || zc_strcaseeq(s, "none") || !*s) {
         *out = AUTH_NONE;
-    } else if (zc_strcaseeq(s, "api_key") || zc_strcaseeq(s, "apikey") ||
-               zc_strcaseeq(s, "x-api-key")) {
+    } else if (zc_strcaseeq(s, "api_key") || zc_strcaseeq(s, "api-key") ||
+               zc_strcaseeq(s, "apikey") || zc_strcaseeq(s, "x-api-key")) {
         *out = AUTH_API_KEY;
     } else if (zc_strcaseeq(s, "user_password") || zc_strcaseeq(s, "userpass") ||
                zc_strcaseeq(s, "password")) {
@@ -102,30 +113,102 @@ void site_config_free(site_config_t *cfg)
     free(cfg);
 }
 
+/*
+ * Política de reemplazo de la regla: el campo "policy" o, si no existe, la
+ * "replacementPolicy" del primer tipo de archivo (formato del API Node.js).
+ * Por defecto LRU.
+ */
+static int parse_policy(const cJSON *json, policy_type_t *out)
+{
+    *out = POLICY_LRU;
+    const cJSON *policy = field(json, "policy", NULL);
+    if (!policy) {
+        const cJSON *types = field(json, "fileTypes", NULL);
+        const cJSON *first = cJSON_IsArray(types) ? cJSON_GetArrayItem(types, 0) : NULL;
+        policy = first ? field(first, "replacementPolicy", NULL) : NULL;
+    }
+    if (!policy)
+        return 0;
+    if (!cJSON_IsString(policy))
+        return -1;
+    return policy_from_string(policy->valuestring, out);
+}
+
+static int parse_file_types(const cJSON *json, url_rule_t *r)
+{
+    const cJSON *types = field(json, "fileTypes", NULL);
+    if (!cJSON_IsArray(types))
+        return 0;
+    int n = cJSON_GetArraySize(types);
+    r->file_types = calloc((size_t)(n > 0 ? n : 1), sizeof(*r->file_types));
+    if (!r->file_types)
+        return -1;
+    const cJSON *t;
+    cJSON_ArrayForEach(t, types) {
+        const cJSON *ext = field(t, "extension", NULL);
+        double ttl = 0;
+        if (!cJSON_IsString(ext) || !ext->valuestring ||
+            read_size(field(t, "ttl", "ttlSeconds"), &ttl) != 0)
+            return -1;
+        file_type_rule_t *ft = &r->file_types[r->file_type_count++];
+        const char *e = ext->valuestring[0] == '.' ? ext->valuestring + 1 : ext->valuestring;
+        zc_strlcpy(ft->extension, e, sizeof(ft->extension));
+        zc_str_tolower(ft->extension);
+        ft->ttl = (long)ttl;
+    }
+    return 0;
+}
+
+/* Hashes SHA-256 de las API keys, como cadenas o como objetos { "hash": "..." }. */
+static int parse_api_keys(const cJSON *json, url_rule_t *r)
+{
+    const cJSON *keys = field(json, "apiKeys", NULL);
+    if (!cJSON_IsArray(keys))
+        return 0;
+    int n = cJSON_GetArraySize(keys);
+    r->api_key_hashes = calloc((size_t)(n > 0 ? n : 1), sizeof(char *));
+    if (!r->api_key_hashes)
+        return -1;
+    const cJSON *k;
+    cJSON_ArrayForEach(k, keys) {
+        const char *h = cJSON_IsString(k) ? k->valuestring : NULL;
+        if (cJSON_IsObject(k)) {
+            const cJSON *hv = field(k, "hash", "keyHash");
+            h = cJSON_IsString(hv) ? hv->valuestring : NULL;
+        }
+        if (!h)
+            continue;
+        char *copy = zc_strndup(h, strlen(h));
+        if (!copy)
+            return -1;
+        zc_str_tolower(copy);
+        r->api_key_hashes[r->api_key_count++] = copy;
+    }
+    return 0;
+}
+
 static int parse_rule(const cJSON *json, url_rule_t *r, const char *domain, char *err,
                       size_t err_size)
 {
-    r->pattern = dup_json_string(json, "pattern");
+    r->pattern = dup_json_string(field(json, "pattern", "pathPattern"));
     if (!r->pattern) {
         set_err(err, err_size, "dominio %s: una URL no tiene 'pattern'", domain);
         return -1;
     }
 
     double size = 0;
-    if (read_size(json, "cacheSize", &size) != 0) {
+    if (read_size(field(json, "cacheSize", "maxCacheBytes"), &size) != 0) {
         set_err(err, err_size, "%s%s: 'cacheSize' inválido", domain, r->pattern);
         return -1;
     }
     r->cache_size = (size_t)size;
 
-    const cJSON *policy = cJSON_GetObjectItemCaseSensitive(json, "policy");
-    r->policy = POLICY_LRU;
-    if (policy && (!cJSON_IsString(policy) || policy_from_string(policy->valuestring, &r->policy) != 0)) {
+    if (parse_policy(json, &r->policy) != 0) {
         set_err(err, err_size, "%s%s: política desconocida", domain, r->pattern);
         return -1;
     }
 
-    const cJSON *auth = cJSON_GetObjectItemCaseSensitive(json, "auth");
+    const cJSON *auth = field(json, "auth", "authMode");
     const char *auth_str = cJSON_IsString(auth) ? auth->valuestring : NULL;
     if ((auth && !cJSON_IsString(auth) && !cJSON_IsNull(auth)) ||
         auth_mode_from_string(auth_str, &r->auth) != 0) {
@@ -133,66 +216,27 @@ static int parse_rule(const cJSON *json, url_rule_t *r, const char *domain, char
         return -1;
     }
 
-    const cJSON *types = cJSON_GetObjectItemCaseSensitive(json, "fileTypes");
-    if (cJSON_IsArray(types)) {
-        int n = cJSON_GetArraySize(types);
-        r->file_types = calloc((size_t)(n > 0 ? n : 1), sizeof(*r->file_types));
-        if (!r->file_types)
-            return -1;
-        const cJSON *t;
-        cJSON_ArrayForEach(t, types) {
-            const cJSON *ext = cJSON_GetObjectItemCaseSensitive(t, "extension");
-            double ttl = 0;
-            if (!cJSON_IsString(ext) || !ext->valuestring || read_size(t, "ttl", &ttl) != 0) {
-                set_err(err, err_size, "%s%s: 'fileTypes' inválido", domain, r->pattern);
-                return -1;
-            }
-            file_type_rule_t *ft = &r->file_types[r->file_type_count++];
-            const char *e = ext->valuestring[0] == '.' ? ext->valuestring + 1 : ext->valuestring;
-            zc_strlcpy(ft->extension, e, sizeof(ft->extension));
-            zc_str_tolower(ft->extension);
-            ft->ttl = (long)ttl;
-        }
+    if (parse_file_types(json, r) != 0) {
+        set_err(err, err_size, "%s%s: 'fileTypes' inválido", domain, r->pattern);
+        return -1;
     }
-
-    const cJSON *keys = cJSON_GetObjectItemCaseSensitive(json, "apiKeys");
-    if (cJSON_IsArray(keys)) {
-        int n = cJSON_GetArraySize(keys);
-        r->api_key_hashes = calloc((size_t)(n > 0 ? n : 1), sizeof(char *));
-        if (!r->api_key_hashes)
-            return -1;
-        const cJSON *k;
-        cJSON_ArrayForEach(k, keys) {
-            /* Se acepta "hash" como cadena o como objeto { "hash": "..." }. */
-            const char *h = cJSON_IsString(k) ? k->valuestring : NULL;
-            if (cJSON_IsObject(k)) {
-                const cJSON *hv = cJSON_GetObjectItemCaseSensitive(k, "hash");
-                h = cJSON_IsString(hv) ? hv->valuestring : NULL;
-            }
-            if (!h)
-                continue;
-            char *copy = zc_strndup(h, strlen(h));
-            if (!copy)
-                return -1;
-            zc_str_tolower(copy);
-            r->api_key_hashes[r->api_key_count++] = copy;
-        }
+    if (parse_api_keys(json, r) != 0) {
+        set_err(err, err_size, "%s%s: sin memoria para 'apiKeys'", domain, r->pattern);
+        return -1;
     }
     return 0;
 }
 
 static int parse_domain(const cJSON *json, domain_rule_t *d, char *err, size_t err_size)
 {
-    d->name = dup_json_string(json, "name");
-    if (!d->name)
-        d->name = dup_json_string(json, "domain");
+    d->name = dup_json_string(field(json, "name", "domain"));
     if (!d->name) {
         set_err(err, err_size, "un dominio no tiene 'name'");
         return -1;
     }
     zc_str_tolower(d->name);
 
-    d->origin = dup_json_string(json, "origin");
+    d->origin = dup_json_string(field(json, "origin", NULL));
     if (d->origin) {
         size_t len = strlen(d->origin);
         while (len > 0 && d->origin[len - 1] == '/')
@@ -200,13 +244,13 @@ static int parse_domain(const cJSON *json, domain_rule_t *d, char *err, size_t e
     }
 
     double size = 0;
-    if (read_size(json, "maxCacheSize", &size) != 0) {
+    if (read_size(field(json, "maxCacheSize", "maxCacheBytes"), &size) != 0) {
         set_err(err, err_size, "dominio %s: 'maxCacheSize' inválido", d->name);
         return -1;
     }
     d->max_cache_size = (size_t)size;
 
-    const cJSON *urls = cJSON_GetObjectItemCaseSensitive(json, "urls");
+    const cJSON *urls = field(json, "urls", "rules");
     if (!cJSON_IsArray(urls))
         return 0;
     int n = cJSON_GetArraySize(urls);
