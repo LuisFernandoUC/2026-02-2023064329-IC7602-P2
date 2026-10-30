@@ -36,6 +36,7 @@ int main(void)
         {"settings", suite_settings},
         {"config_store", suite_config_store},
         {"proxy", suite_proxy},
+        {"log", suite_log},
     };
     for (size_t i = 0; i < sizeof(suites) / sizeof(suites[0]); i++) {
         printf("== %s\n", suites[i].name);

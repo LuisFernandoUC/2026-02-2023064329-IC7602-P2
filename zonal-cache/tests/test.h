@@ -68,6 +68,7 @@ void suite_auth(void);
 void suite_settings(void);
 void suite_config_store(void);
 void suite_proxy(void);
+void suite_log(void);
 
 /* Crea un directorio temporal único para pruebas de disco. */
 void test_tmpdir(char *out, size_t size);

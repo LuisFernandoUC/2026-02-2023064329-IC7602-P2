@@ -8,7 +8,7 @@
 #include <stdio.h>
 #include <time.h>
 
-static log_level_t current_level = LOG_INFO;
+static log_level_t current_level = ZC_LOG_INFO;
 
 void log_set_level(log_level_t level)
 {
@@ -18,14 +18,14 @@ void log_set_level(log_level_t level)
 log_level_t log_level_from_string(const char *s)
 {
     if (!s)
-        return LOG_INFO;
+        return ZC_LOG_INFO;
     if (zc_strcaseeq(s, "debug"))
-        return LOG_DEBUG;
-    if (zc_strcaseeq(s, "warn"))
-        return LOG_WARN;
+        return ZC_LOG_DEBUG;
+    if (zc_strcaseeq(s, "warn") || zc_strcaseeq(s, "warning"))
+        return ZC_LOG_WARN;
     if (zc_strcaseeq(s, "error"))
-        return LOG_ERROR;
-    return LOG_INFO;
+        return ZC_LOG_ERROR;
+    return ZC_LOG_INFO;
 }
 
 void log_msg(log_level_t level, const char *fmt, ...)
