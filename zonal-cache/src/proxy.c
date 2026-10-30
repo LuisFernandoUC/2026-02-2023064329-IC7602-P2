@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #define MAX_URL 4096
 #define MAX_TOKEN 4096
@@ -304,6 +305,53 @@ static void serve_from_cache(const proxy_t *px, const cache_object_t *obj, time_
     add_diag_headers(px, resp, "HIT");
 }
 
+/* Límites y política con los que se guarda una respuesta de la regla. */
+static cache_scope_t make_scope(const domain_rule_t *dom, const url_rule_t *rule)
+{
+    cache_scope_t scope = {
+        .domain = dom->name,
+        .domain_max = dom->max_cache_size,
+        .partition = rule->pattern,
+        .partition_max = rule->cache_size,
+        .policy = rule->policy,
+    };
+    return scope;
+}
+
+static void store_response(const proxy_t *px, const cache_scope_t *scope, const char *key,
+                           const http_response_t *resp, time_t now, long ttl)
+{
+    cache_object_t obj = {
+        .status = resp->status,
+        .body = resp->body,
+        .body_len = resp->body_len,
+        .stored_at = now,
+        .expires_at = now + ttl,
+    };
+    const char *ctype = http_response_header(resp, "Content-Type");
+    zc_strlcpy(obj.content_type, ctype ? ctype : "", sizeof(obj.content_type));
+    cache_put(px->cache, scope, key, &obj);
+}
+
+int proxy_origin_allows_store(const http_response_t *resp)
+{
+    const char *cc = http_response_header(resp, "Cache-Control");
+    if (!cc)
+        return 1;
+    /* Recorre las directivas separadas por coma: "public, max-age=60, no-store" */
+    const char *p = cc;
+    while (*p) {
+        while (*p == ' ' || *p == '\t' || *p == ',')
+            p++;
+        size_t len = strcspn(p, ",= \t");
+        if ((len == 8 && strncasecmp(p, "no-store", 8) == 0) ||
+            (len == 7 && strncasecmp(p, "private", 7) == 0))
+            return 0;
+        p += strcspn(p, ",");
+    }
+    return 1;
+}
+
 void proxy_handle(const proxy_t *px, const site_config_t *cfg, const http_request_t *req,
                   const request_ctx_t *rc, http_response_t *resp)
 {
@@ -353,12 +401,7 @@ void proxy_handle(const proxy_t *px, const site_config_t *cfg, const http_reques
     snprintf(key, sizeof(key), "%s%s", host, req->target);
     cache_scope_t scope = {0};
     if (cacheable) {
-        scope.domain = dom->name;
-        scope.domain_max = dom->max_cache_size;
-        scope.partition = rule->pattern;
-        scope.partition_max = rule->cache_size;
-        scope.policy = rule->policy;
-
+        scope = make_scope(dom, rule);
         cache_object_t obj;
         if (cache_get(px->cache, &scope, key, rc->now, &obj) == 1) {
             serve_from_cache(px, &obj, rc->now, resp);
@@ -372,17 +415,7 @@ void proxy_handle(const proxy_t *px, const site_config_t *cfg, const http_reques
         return;
     }
 
-    if (cacheable && resp->status == 200) {
-        cache_object_t obj = {
-            .status = resp->status,
-            .body = resp->body,
-            .body_len = resp->body_len,
-            .stored_at = rc->now,
-            .expires_at = rc->now + ttl,
-        };
-        const char *ctype = http_response_header(resp, "Content-Type");
-        zc_strlcpy(obj.content_type, ctype ? ctype : "", sizeof(obj.content_type));
-        cache_put(px->cache, &scope, key, &obj);
-    }
+    if (cacheable && resp->status == 200 && proxy_origin_allows_store(resp))
+        store_response(px, &scope, key, resp, rc->now, ttl);
     add_diag_headers(px, resp, cacheable ? "MISS" : "BYPASS");
 }

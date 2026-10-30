@@ -32,6 +32,7 @@ typedef struct {
     int calls;
     int status;
     int fail;
+    const char *cache_control; /* Cache-Control que devuelve el origen (NULL = ninguno) */
     char url[512];
     char method[16];
     char headers[2048]; /* "Nombre: valor\n" ... */
@@ -56,6 +57,8 @@ static int fake_fetch(void *ctx, const origin_request_t *req, http_response_t *r
 
     http_response_init(resp, o->status);
     http_response_add_header(resp, "Content-Type", "text/html");
+    if (o->cache_control)
+        http_response_add_header(resp, "Cache-Control", o->cache_control);
     char body[64];
     snprintf(body, sizeof(body), "respuesta #%d", o->calls);
     http_response_set_body(resp, body, strlen(body));
@@ -218,6 +221,50 @@ TEST(error_responses_are_not_cached)
     http_response_free(&r);
     CHECK_EQ_INT(e.origin.calls, 2);
     env_free(&e);
+}
+
+TEST(origin_no_store_is_not_cached)
+{
+    env_t e;
+    env_init(&e);
+    e.origin.cache_control = "no-cache, No-Store";
+    http_response_t r;
+    request(&e, "GET /index.html HTTP/1.1\r\nHost: sitio.local\r\n\r\n", 0, &r);
+    CHECK_EQ_INT(r.status, 200);
+    http_response_free(&r);
+    request(&e, "GET /index.html HTTP/1.1\r\nHost: sitio.local\r\n\r\n", 0, &r);
+    CHECK_EQ_STR(http_response_header(&r, "X-Cache"), "MISS");
+    http_response_free(&r);
+    CHECK_EQ_INT(e.origin.calls, 2);
+    env_free(&e);
+}
+
+TEST(cache_control_directives)
+{
+    http_response_t r;
+    http_response_init(&r, 200);
+    CHECK(proxy_origin_allows_store(&r)); /* sin encabezado */
+    http_response_add_header(&r, "Cache-Control", "public, max-age=60");
+    CHECK(proxy_origin_allows_store(&r));
+    http_response_free(&r);
+
+    const char *denied[] = {"no-store", "private", "max-age=0, private=\"Set-Cookie\"",
+                            "public,no-store", " PRIVATE "};
+    for (size_t i = 0; i < sizeof(denied) / sizeof(denied[0]); i++) {
+        http_response_init(&r, 200);
+        http_response_add_header(&r, "Cache-Control", denied[i]);
+        if (proxy_origin_allows_store(&r)) {
+            fprintf(stderr, "    \"%s\" debía impedir guardar\n", denied[i]);
+            test_current_failed = 1;
+        }
+        http_response_free(&r);
+    }
+
+    /* Directivas que solo se parecen: no deben bloquear. */
+    http_response_init(&r, 200);
+    http_response_add_header(&r, "Cache-Control", "no-store-extension, privately");
+    CHECK(proxy_origin_allows_store(&r));
+    http_response_free(&r);
 }
 
 TEST(origin_failure_returns_502)
@@ -445,6 +492,8 @@ void suite_proxy(void)
     RUN(query_string_is_part_of_key);
     RUN(non_get_and_unconfigured_types_bypass_cache);
     RUN(error_responses_are_not_cached);
+    RUN(origin_no_store_is_not_cached);
+    RUN(cache_control_directives);
     RUN(origin_failure_returns_502);
     RUN(api_key_authentication);
     RUN(user_password_redirects_to_login);

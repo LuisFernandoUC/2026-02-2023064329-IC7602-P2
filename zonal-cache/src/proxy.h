@@ -55,6 +55,12 @@ typedef struct {
 void proxy_handle(const proxy_t *px, const site_config_t *cfg, const http_request_t *req,
                   const request_ctx_t *rc, http_response_t *resp);
 
+/*
+ * Devuelve 0 si el origen pidió no guardar la respuesta (Cache-Control con
+ * no-store o private); 1 en caso contrario. El TTL lo sigue definiendo la UI.
+ */
+int proxy_origin_allows_store(const http_response_t *resp);
+
 /* Devuelve 1 si next es una ruta local segura para redirigir (evita open redirects). */
 int proxy_is_safe_redirect(const char *next);
 

@@ -211,7 +211,7 @@ También se aceptan los nombres de campos del borrador del API Node.js ([Docs/Co
 | `policy` | `fileTypes[0].replacementPolicy` si la URL no define `policy` |
 | `apiKeys[].hash` | `apiKeys[].keyHash` |
 
-Solo se guardan respuestas `200` a `GET` cuyo tipo de archivo tiene TTL. El resto pasa directo al origen (`X-Cache: BYPASS`).
+Solo se guardan respuestas `200` a `GET` cuyo tipo de archivo tiene TTL y que el origen no marcó con `Cache-Control: no-store` o `private`. El resto pasa directo al origen (`X-Cache: BYPASS`).
 
 Las API keys se guardan como hash: el API nunca debe mandar la clave en texto plano. En Node.js:
 
