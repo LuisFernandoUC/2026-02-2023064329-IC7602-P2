@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "dns-interceptor.fullname" . }}
+  labels:
+    {{- include "dns-interceptor.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/name: {{ include "dns-interceptor.name" . }}
+  template:
+    metadata:
+      labels:
+        {{- include "dns-interceptor.labels" . | nindent 8 }}
+      annotations:
+        # Reinicia los pods cuando cambia la configuración.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      containers:
+        - name: dns-interceptor
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: dns
+              containerPort: {{ .Values.containerPort }}
+              protocol: UDP
+          envFrom:
+            - configMapRef:
+                name: {{ include "dns-interceptor.fullname" . }}
+          # UDP no admite sondas HTTP: se comprueba que el binario cargue la configuración y la base de países.
+          livenessProbe:
+            exec:
+              command: ["/app/dns_interceptor", "--lookup", "8.8.8.8"]
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

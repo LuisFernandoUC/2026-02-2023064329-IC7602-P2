@@ -1,0 +1,6 @@
+apiVersion: v2
+name: dns-interceptor
+description: DNS Interceptor en GNU C que redirige a la caché zonal según el país del cliente (Proyecto 2, IC7602).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -1,0 +1,5 @@
+build/
+tests/
+README.md
+.gitignore
+data/dbip-country-lite.csv
