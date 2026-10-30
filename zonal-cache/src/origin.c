@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Buffer que crece según llegan los datos, con un tope (max) para no agotar memoria. */
 typedef struct {
     unsigned char *data;
     size_t len;
@@ -16,6 +17,7 @@ typedef struct {
     size_t max;
 } buffer_t;
 
+/* Callback de libcurl para el cuerpo. Devolver 0 hace que libcurl aborte. */
 static size_t on_body(char *ptr, size_t size, size_t nmemb, void *userdata)
 {
     buffer_t *b = userdata;
@@ -38,6 +40,10 @@ static size_t on_body(char *ptr, size_t size, size_t nmemb, void *userdata)
     return n;
 }
 
+/*
+ * Callback de libcurl: se llama una vez por cada línea de encabezado de la respuesta.
+ * Se descartan los encabezados hop-by-hop y Content-Length (los define la caché).
+ */
 static size_t on_header(char *ptr, size_t size, size_t nmemb, void *userdata)
 {
     http_response_t *resp = userdata;
@@ -69,13 +75,12 @@ static size_t on_header(char *ptr, size_t size, size_t nmemb, void *userdata)
     return n;
 }
 
-int origin_fetch_curl(void *ctx, const origin_request_t *req, http_response_t *resp)
+/*
+ * Lista de encabezados para libcurl ("Nombre: valor"). Se agrega "Expect:" vacío
+ * para que libcurl no espere un 100 Continue antes de enviar cuerpos grandes.
+ */
+static struct curl_slist *build_header_list(const origin_request_t *req)
 {
-    const origin_options_t *opt = ctx;
-    CURL *curl = curl_easy_init();
-    if (!curl)
-        return -1;
-
     struct curl_slist *headers = NULL;
     for (size_t i = 0; i < req->header_count; i++) {
         size_t len = strlen(req->headers[i].name) + strlen(req->headers[i].value) + 3;
@@ -86,8 +91,21 @@ int origin_fetch_curl(void *ctx, const origin_request_t *req, http_response_t *r
         headers = curl_slist_append(headers, h);
         free(h);
     }
-    headers = curl_slist_append(headers, "Expect:");
+    return curl_slist_append(headers, "Expect:");
+}
 
+/*
+ * Reenvía la petición al origen sin seguir redirecciones (el 3xx se entrega tal
+ * cual al cliente). El cuerpo de la respuesta se limita a opt->max_body bytes.
+ */
+int origin_fetch_curl(void *ctx, const origin_request_t *req, http_response_t *resp)
+{
+    const origin_options_t *opt = ctx;
+    CURL *curl = curl_easy_init();
+    if (!curl)
+        return -1;
+
+    struct curl_slist *headers = build_header_list(req);
     buffer_t body = {.max = opt->max_body};
     curl_easy_setopt(curl, CURLOPT_URL, req->url);
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, req->method);

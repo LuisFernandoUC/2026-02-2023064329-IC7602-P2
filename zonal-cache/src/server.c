@@ -30,6 +30,10 @@ typedef struct {
     server_ctx_t *ctx;
 } connection_t;
 
+/*
+ * Lee hasta len bytes de la conexión (TLS o texto plano).
+ * Devuelve los bytes leídos, 0 si el cliente cerró o -1 si hubo error o timeout.
+ */
 static long conn_read(connection_t *c, void *buf, size_t len)
 {
     if (c->ssl) {
@@ -43,6 +47,7 @@ static long conn_read(connection_t *c, void *buf, size_t len)
     return (long)n;
 }
 
+/* Escribe todo el buffer, reintentando escrituras parciales. Devuelve 0 o -1. */
 static int conn_write_all(connection_t *c, const char *buf, size_t len)
 {
     size_t sent = 0;
@@ -159,51 +164,73 @@ fail:
     return -1;
 }
 
-static void *handle_connection(void *arg)
+static long elapsed_ms(const struct timespec *start)
 {
-    connection_t *c = arg;
-    struct timespec start;
-    clock_gettime(CLOCK_MONOTONIC, &start);
-
-    if (c->is_tls) {
-        if (SSL_accept(c->ssl) <= 0) {
-            LOG_D("handshake TLS fallido desde %s", c->ip);
-            goto done;
-        }
-    }
-
-    http_request_t req;
-    if (read_request(c, &req) != 0)
-        goto done;
-
-    config_snapshot_t *snap = config_store_acquire(c->ctx->configs);
-    request_ctx_t rc = {.client_ip = c->ip, .is_tls = c->is_tls, .now = time(NULL)};
-    http_response_t resp;
-    proxy_handle(c->ctx->proxy, config_snapshot_get(snap), &req, &rc, &resp);
-    config_store_release(c->ctx->configs, snap);
-    send_response(c, &resp);
-
     struct timespec end;
     clock_gettime(CLOCK_MONOTONIC, &end);
-    long ms = (end.tv_sec - start.tv_sec) * 1000 + (end.tv_nsec - start.tv_nsec) / 1000000;
-    const char *host = http_request_header(&req, "Host");
-    const char *xcache = http_response_header(&resp, "X-Cache");
-    LOG_I("%s %s %s%s %d %s %ldms%s", c->ip, req.method, host ? host : "-", req.target,
-          resp.status, xcache ? xcache : "-", ms, c->is_tls ? " tls" : "");
+    return (end.tv_sec - start->tv_sec) * 1000 + (end.tv_nsec - start->tv_nsec) / 1000000;
+}
 
-    http_response_free(&resp);
-    http_request_free(&req);
+/* Una línea de bitácora por petición: IP método host+ruta status X-Cache duración. */
+static void log_access(const connection_t *c, const http_request_t *req,
+                       const http_response_t *resp, long ms)
+{
+    const char *host = http_request_header(req, "Host");
+    const char *xcache = http_response_header(resp, "X-Cache");
+    LOG_I("%s %s %s%s %d %s %ldms%s", c->ip, req->method, host ? host : "-", req->target,
+          resp->status, xcache ? xcache : "-", ms, c->is_tls ? " tls" : "");
+}
 
-done:
+/*
+ * Atiende la petición con la configuración vigente. La referencia a la
+ * configuración se suelta antes de escribir la respuesta al cliente, para que un
+ * cliente lento no retenga una configuración vieja en memoria.
+ */
+static void dispatch(connection_t *c, const http_request_t *req, http_response_t *resp)
+{
+    config_snapshot_t *snap = config_store_acquire(c->ctx->configs);
+    request_ctx_t rc = {.client_ip = c->ip, .is_tls = c->is_tls, .now = time(NULL)};
+    proxy_handle(c->ctx->proxy, config_snapshot_get(snap), req, &rc, resp);
+    config_store_release(c->ctx->configs, snap);
+}
+
+static void close_connection(connection_t *c)
+{
     if (c->ssl) {
         SSL_shutdown(c->ssl);
         SSL_free(c->ssl);
     }
     close(c->fd);
     free(c);
+}
+
+/* Hilo de una conexión: handshake TLS (si aplica), una petición y cierre. */
+static void *handle_connection(void *arg)
+{
+    connection_t *c = arg;
+    struct timespec start;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
+    if (c->is_tls && SSL_accept(c->ssl) <= 0) {
+        LOG_D("handshake TLS fallido desde %s", c->ip);
+        close_connection(c);
+        return NULL;
+    }
+
+    http_request_t req;
+    if (read_request(c, &req) == 0) {
+        http_response_t resp;
+        dispatch(c, &req, &resp);
+        send_response(c, &resp);
+        log_access(c, &req, &resp, elapsed_ms(&start));
+        http_response_free(&resp);
+        http_request_free(&req);
+    }
+    close_connection(c);
     return NULL;
 }
 
+/* Socket TCP en escucha en todas las interfaces IPv4. Devuelve el fd o -1. */
 static int listen_on(int port)
 {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -222,6 +249,10 @@ static int listen_on(int port)
     return fd;
 }
 
+/*
+ * Contexto TLS para la SSL termination: certificado y llave de ZC_TLS_CERT_FILE y
+ * ZC_TLS_KEY_FILE, solo TLS 1.2 o superior.
+ */
 static SSL_CTX *create_tls_context(const settings_t *s)
 {
     SSL_CTX *tls = SSL_CTX_new(TLS_server_method());
@@ -240,6 +271,10 @@ static SSL_CTX *create_tls_context(const settings_t *s)
     return tls;
 }
 
+/*
+ * Acepta una conexión y la atiende en un hilo desacoplado. tls es NULL para el
+ * puerto HTTP; el handshake TLS se hace en el hilo para no bloquear el accept.
+ */
 static void accept_one(server_ctx_t *ctx, int listen_fd, SSL_CTX *tls)
 {
     struct sockaddr_in addr;
