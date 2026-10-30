@@ -1,13 +1,13 @@
 # Entorno de desarrollo del DNS Interceptor (sin Kubernetes).
 # Uso: docker compose up --build
-# Prueba: dig @127.0.0.1 -p 5353 apache.p2.local +subnet=80.58.61.0/24
+# Prueba: dig @127.0.0.1 -p 15353 apache.p2.local +subnet=80.58.61.0/24  (el 5353 del equipo lo usa mDNS)
 services:
   dns-interceptor:
     build: .
     image: dns-interceptor:latest
     container_name: dns-interceptor
     ports:
-      - "${DI_PUBLISHED_PORT:-5353}:5353/udp"
+      - "${DI_PUBLISHED_PORT:-15353}:5353/udp"
     environment:
       DI_DOMAINS: ${DI_DOMAINS:-apache.p2.local,*.cdn.p2.local}
       DI_ZONE_IPS: ${DI_ZONE_IPS:-america=10.0.0.1,europa=10.0.0.2,asia=10.0.0.3}
