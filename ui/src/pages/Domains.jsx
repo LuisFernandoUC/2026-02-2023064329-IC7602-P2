@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { signOut } from 'firebase/auth';
+import { getPanelAuth } from '../auth.js';
 import { Brand } from '../components/Layout.jsx';
 import AddDomainDialog from '../components/AddDomainDialog.jsx';
 import DeleteDialog from '../components/DeleteDialog.jsx';
@@ -46,10 +48,22 @@ const exampleDomains = [
   },
 ];
 
-export default function Domains({ verificationId, domainId, ruleForm }) {
+export default function Domains({ user, verificationId, domainId, ruleForm }) {
   const [addingDomain, setAddingDomain] = useState(false);
   const [deletingDomain, setDeletingDomain] = useState(null);
   const [message, setMessage] = useState('');
+  const [signingOut, setSigningOut] = useState(false);
+
+  async function handleLogout() {
+    setSigningOut(true);
+    try {
+      await signOut(getPanelAuth());
+    } catch {
+      setMessage('No se pudo cerrar la sesión. Intenta de nuevo.');
+    } finally {
+      setSigningOut(false);
+    }
+  }
 
   return (
     <div className="min-h-screen">
@@ -62,13 +76,14 @@ export default function Domains({ verificationId, domainId, ruleForm }) {
             </nav>
           </div>
           <div className="flex items-center gap-6 text-sm text-muted">
-            <span>cuenta@ejemplo.com</span>
-            <button type="button" disabled title="Disponible cuando se conecte el inicio de sesión" className="cursor-not-allowed opacity-50">Cerrar sesión</button>
+            <span>{user.email}</span>
+            <button type="button" onClick={handleLogout} disabled={signingOut} className="rounded hover:text-primary disabled:opacity-50">{signingOut ? 'Cerrando sesión…' : 'Cerrar sesión'}</button>
           </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-7xl px-6 py-10">
+        {message && <p role="status" className="form-message mb-5">{message}</p>}
         {verificationId ? (
           <VerifyDomain key={verificationId} domain={exampleDomains.find((domain) => domain.id === verificationId)} />
         ) : ruleForm ? (
@@ -88,7 +103,6 @@ export default function Domains({ verificationId, domainId, ruleForm }) {
             </div>
 
             <p className="my-5 text-sm text-muted">Vista con datos de ejemplo. Todavía no se cargan los dominios de tu cuenta.</p>
-            {message && <p role="status" className="form-message mb-5">{message}</p>}
 
             <div className="overflow-x-auto rounded-lg border border-line bg-surface">
               <table className="w-full text-left text-sm">

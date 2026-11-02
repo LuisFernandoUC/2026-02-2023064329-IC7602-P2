@@ -1,11 +1,14 @@
 import { useState } from 'react';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { authErrorMessage, getPanelAuth } from '../auth.js';
 import { AuthLayout } from '../components/Layout.jsx';
 import PasswordField from '../components/PasswordField.jsx';
 
 export default function Register() {
   const [message, setMessage] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
@@ -16,7 +19,16 @@ export default function Register() {
       return;
     }
 
-    setMessage('El registro de cuentas aún no está disponible.');
+    setMessage('');
+    setSubmitting(true);
+
+    try {
+      await createUserWithEmailAndPassword(getPanelAuth(), data.get('email').trim(), data.get('password'));
+    } catch (error) {
+      setMessage(authErrorMessage(error));
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -32,8 +44,8 @@ export default function Register() {
         </div>
         <PasswordField id="password" autoComplete="new-password" />
         <PasswordField id="confirm-password" label="Confirmar contraseña" autoComplete="new-password" />
-        {message && <p role="status" className="form-message">{message}</p>}
-        <button type="submit" className="button-primary w-full">Crear cuenta</button>
+        {message && <p role="alert" className="form-message">{message}</p>}
+        <button type="submit" disabled={submitting} className="button-primary w-full">{submitting ? 'Creando cuenta…' : 'Crear cuenta'}</button>
       </form>
     </AuthLayout>
   );
