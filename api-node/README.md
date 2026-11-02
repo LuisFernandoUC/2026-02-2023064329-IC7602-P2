@@ -1,6 +1,6 @@
 # API Node.js
 
-API con Express y un módulo de conexión a Firestore. Por ahora solo tiene un endpoint de prueba.
+API con Express, conexión a Firestore y un middleware de autenticación con Firebase Authentication.
 
 ## Ejecutar
 
@@ -21,11 +21,12 @@ npm run dev
 | --- | --- | --- |
 | `HOST` | Dirección donde escucha el servidor local. | `127.0.0.1` |
 | `PORT` | Puerto del servidor local, de 1 a 65535. | `3000` |
+| `UI_ORIGIN` | Origen de la UI permitido por CORS. | `http://127.0.0.1:5173` |
 | `FIREBASE_PROJECT_ID` | ID del proyecto de Firebase. | Valor `project_id` de la cuenta de servicio. |
 | `FIREBASE_CLIENT_EMAIL` | Correo de la cuenta de servicio. | Valor `client_email`. |
 | `FIREBASE_PRIVATE_KEY` | Clave privada de la cuenta de servicio. | Valor `private_key`, entre comillas dobles. |
 
-`HOST` y `PORT` son obligatorias para el servidor local. Las variables de Firebase son necesarias al usar Firestore. `/api/health` puede funcionar sin ellas.
+`HOST` y `PORT` son obligatorias para el servidor local. Las variables de Firebase se usan para Firestore y para validar sesiones. `/api/health` puede funcionar sin ellas. `UI_ORIGIN` debe coincidir con la dirección de la UI, incluido el puerto.
 
 Las variables se leen desde `.env`, que no se sube al repositorio. En Vercel se configurarán en el proyecto y se usará la aplicación exportada en `app.js`.
 
@@ -36,7 +37,7 @@ Las variables se leen desde `.env`, que no se sube al repositorio. En Vercel se 
 3. En la configuración del proyecto, abrir **Cuentas de servicio** y generar una clave privada. Guardar el JSON fuera del repositorio.
 4. Copiar `project_id`, `client_email` y `private_key` a las variables correspondientes de `.env`. Si el archivo ya existe, agregar las variables sin sobrescribirlo.
 
-Copiar la clave privada entre comillas dobles, conservando los `\n` del JSON. `firestore.js` los convierte en saltos de línea al iniciar Firebase Admin.
+Copiar la clave privada entre comillas dobles, conservando los `\n` del JSON. `firebase.js` los convierte en saltos de línea al iniciar Firebase Admin.
 
 `getDb()` devuelve el cliente de Firestore y reutiliza la misma aplicación de Firebase en las siguientes llamadas. La clave privada se usa solo en el servidor.
 
@@ -56,6 +57,14 @@ La clave actual se generó en el equipo y se registró su certificado público e
 
 Se comprobó el acceso con `npm run check:firestore`. Resultado: `Conexión con Firestore verificada.`
 
+## Autenticación del panel
+
+Se usa Firebase Authentication con correo y contraseña porque el proyecto ya usa Firebase y permite manejar las cuentas y la sesión sin guardar contraseñas en la API.
+
+La UI registra e inicia sesión con el SDK de Firebase. En sus solicitudes a la API envía el ID token en `Authorization: Bearer <token>`. `requireAuth` lo verifica con Firebase Admin y obtiene el UID de la cuenta. Ese UID se usará como `ownerId` al implementar los dominios.
+
+Los endpoints de dominios, reglas y credenciales todavía no están implementados. Al crearlos, se protegerán con `requireAuth`, que responde `401` si falta el token o no es válido, y `503` si falla la validación por un problema del servicio o de configuración. La autenticación de usuarios de recursos se hará por separado.
+
 ## Probar
 
 Con el servidor activo, abrir otra terminal:
@@ -72,6 +81,14 @@ Debe responder con HTTP `200` y este JSON:
 
 Una ruta inexistente responde con HTTP `404` y `{"error":"Ruta no encontrada"}`. Si se cambia `HOST` o `PORT`, ajustar la dirección del comando.
 
+Para probar el middleware de autenticación:
+
+```bash
+npm test
+```
+
+Las pruebas cubren acceso sin sesión, tokens inválidos o vencidos, identidad verificada y fallos del servicio. Usan una ruta que solo existe durante las pruebas, credenciales locales y validación de sesiones simulada. No crean cuentas ni modifican Firebase.
+
 ## Referencias
 
 - [Datos y endpoints propuestos](../Docs/Contratos/API-Node.md).
@@ -79,5 +96,6 @@ Una ruta inexistente responde con HTTP `404` y `{"error":"Ruta no encontrada"}`.
 - [Express en Vercel](https://vercel.com/docs/frameworks/backend/express): referencia para exportar la aplicación.
 - [Variables de entorno en Node.js](https://nodejs.org/docs/latest-v24.x/api/cli.html#--env-filefile): carga de `.env`.
 - [Firebase Admin SDK](https://firebase.google.com/docs/admin/setup): configuración de la cuenta de servicio y las credenciales.
+- [Verificar ID tokens](https://firebase.google.com/docs/auth/admin/verify-id-tokens): validación de la sesión en la API con Firebase Admin.
 - [Firestore desde un servidor](https://firebase.google.com/docs/firestore/quickstart-server): inicialización del cliente y acceso a la base de datos.
 - [Subir claves de cuentas de servicio](https://docs.cloud.google.com/iam/docs/keys-upload): registro del certificado público en Google Cloud.

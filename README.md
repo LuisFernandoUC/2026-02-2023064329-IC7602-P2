@@ -112,7 +112,7 @@ Zonal Cache ──configuración / autenticación──▶ REST API Node.js ─�
 | Helm                           | _TODO_  | Instalar los charts                      |
 | GCC / Make                     | _TODO_  | Compilar DNS Interceptor y Zonal Cache   |
 | JDK + Maven/Gradle             | _TODO_  | Compilar la Rest API Java                |
-| Node.js                        | 24.x para la API; UI pendiente | API Node.js y UI                         |
+| Node.js                        | 24.x | API Node.js y UI                         |
 | `nslookup`, `curl` / Postman   | —       | Probar el sistema                        |
 
 ## 6. Cómo ejecutar el proyecto
@@ -188,7 +188,7 @@ La documentación debe cubrir **todos** los componentes implementados, instalado
 
 ### 8.5 REST API Node.js
 
-La base de la API incluye `GET /api/health`. Ver [cómo ejecutarla y probarla](api-node/README.md).
+La API incluye `GET /api/health` y un middleware para verificar los ID tokens de Firebase Authentication. Los endpoints del panel siguen pendientes. Ver [cómo ejecutarla y probarla](api-node/README.md).
 
 La conexión a Firestore se configura con variables de entorno. El comando `npm run check:firestore`, desde `api-node/`, permite comprobar el acceso. Ver [configuración de Firestore](api-node/README.md#configurar-firestore).
 
@@ -198,7 +198,7 @@ Propuesta de [datos y endpoints iniciales](Docs/Contratos/API-Node.md), con los 
 
 ### 8.6 UI
 
-<!-- Registro, administración de dominios y URLs (wildcards), tamaño de caché, tipos de archivo con TTL y política, mecanismo de autenticación, formulario de login para las cachés, cierre de sesión. Deploy en Vercel. Herramienta de IA generativa utilizada. -->
+La UI usa React, Vite y Tailwind CSS. El registro, inicio y cierre de sesión están conectados a Firebase Authentication. Las pantallas de dominios, reglas y credenciales todavía usan datos de ejemplo. Ver [configuración y ejecución de la UI](ui/README.md).
 
 ### 8.7 Automatización
 

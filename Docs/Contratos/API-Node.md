@@ -2,7 +2,7 @@
 
 **Responsable:** Nicole Parra Valverde
 
-**Estado:** borrador, sin implementar.
+**Estado:** implementado `/api/health` y preparado el middleware de autenticación. Las rutas del panel y de las cachés son propuestas.
 
 Basado en las páginas 4 y 5 del [enunciado](../Proyectos-2026-02-IC7602-P2.pdf).
 
@@ -23,7 +23,7 @@ Campos propuestos. Tamaños en bytes y TTL en segundos.
 
 | Dato | Campos mínimos | Uso |
 | --- | --- | --- |
-| Cuenta del panel | `id`, `email` | Propietario de los dominios. |
+| Cuenta del panel | `id` (UID de Firebase Authentication), `email` | Propietario de los dominios. |
 | Dominio | `id`, `ownerId`, `name`, `maxCacheBytes`, `verified`, `verificationToken` | Dominio, propietario, límite de caché y verificación TXT. |
 | Regla de URL | `id`, `domainId`, `pathPattern`, `maxCacheBytes`, `fileTypes`, `authMode` | Configuración de una ruta, con soporte de comodines. |
 | Usuario de un recurso | `id`, `ruleId`, `username`, `passwordHash` | Acceso a URLs con usuario y contraseña. |
@@ -34,7 +34,7 @@ Campos propuestos. Tamaños en bytes y TTL en segundos.
 
 `authMode` puede ser `api-key` o `password`. Los usuarios de recursos son distintos de la cuenta del panel.
 
-Las contraseñas, claves y tokens de sesión se guardarán como hashes. Los hashes no se enviarán a la UI ni a las cachés. Una API key se mostrará solo al crearla.
+Las contraseñas de usuarios de recursos, las claves y los tokens de sesión se guardarán como hashes. Los hashes no se enviarán a la UI ni a las cachés. Una API key se mostrará solo al crearla. Firebase Authentication maneja las contraseñas de las cuentas del panel.
 
 ### Ejemplo de regla de URL
 
@@ -61,6 +61,8 @@ La suma de archivos en caché no puede superar el límite del dominio, aunque ca
 
 Estas rutas requieren iniciar sesión. Cada cuenta solo puede administrar sus propios datos.
 
+El registro, inicio y cierre de sesión del panel usan Firebase Authentication con correo y contraseña desde la UI. Las solicitudes envían el ID token en `Authorization: Bearer <token>`. Al implementar estas rutas, se usará `requireAuth` para verificarlo con Firebase Admin y obtener el propietario del UID verificado.
+
 | Método | Ruta | Operación |
 | --- | --- | --- |
 | GET | `/api/domains` | Listar los dominios de la cuenta. |
@@ -81,7 +83,7 @@ Estas rutas requieren iniciar sesión. Cada cuenta solo puede administrar sus pr
 
 Al agregar un dominio, la API devuelve el nombre y el valor del TXT que se debe crear. Luego consulta ese registro para verificar la propiedad. Solo los dominios verificados se envían a las cachés.
 
-Falta elegir cómo se hará el registro, inicio y cierre de sesión del panel. Las rutas se definirán según esa elección.
+La comprobación del propietario se agregará al implementar cada ruta de dominios, reglas y credenciales.
 
 ## 4. Endpoints para las cachés
 
@@ -102,7 +104,7 @@ La caché debe autenticarse ante la API. Esa autenticación es distinta de la AP
 
 | Acuerdo | Participantes |
 | --- | --- |
-| Elegir la autenticación del panel y los permisos de la API. | Nicole |
+| Aplicar los permisos por propietario al implementar las rutas del panel. | Nicole |
 | Definir el nombre y el valor del registro TXT. | Nicole y Luis Fernando |
 | Definir cómo funciona `*`, qué regla gana si coinciden varias y qué pasa si ninguna coincide. | Nicole y Fabricio |
 | Definir el formato de configuración, el origen de los archivos y cómo la caché recibe los cambios, incluidas las eliminaciones de claves o usuarios. | Nicole y Fabricio |
