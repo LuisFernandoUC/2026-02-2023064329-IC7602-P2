@@ -9,7 +9,8 @@
   "scripts": {
     "start": "node --env-file=.env server.js",
     "dev": "node --watch --env-file=.env server.js",
-    "check:firestore": "node --env-file=.env check-firestore.js"
+    "check:firestore": "node --env-file=.env check-firestore.js",
+    "test": "node --test"
   },
   "dependencies": {
     "cors": "^2.8.6",
