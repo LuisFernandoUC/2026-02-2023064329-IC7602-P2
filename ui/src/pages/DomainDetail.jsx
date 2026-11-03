@@ -10,7 +10,7 @@ export default function DomainDetail({ domain }) {
       <>
         <a href="#/dominios" className="text-link text-sm">← Volver a Mis dominios</a>
         <h1 className="mt-6 text-3xl font-semibold">Dominio no encontrado</h1>
-        <p className="mt-4 text-muted">Este dominio no está disponible en la vista de ejemplo.</p>
+        <p className="mt-4 text-muted">No se encontró este dominio en tu cuenta.</p>
       </>
     );
   }
@@ -37,7 +37,7 @@ export default function DomainDetail({ domain }) {
         </dl>
       </div>
 
-      <p className="my-5 text-sm text-muted">Vista con datos de ejemplo. Todavía no se cargan las reglas de tu cuenta.</p>
+      <p className="my-5 text-sm text-muted">La administración de reglas todavía no está disponible.</p>
       {message && <p role="status" className="form-message mb-5">{message}</p>}
 
       <section aria-labelledby="rules-title">

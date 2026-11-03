@@ -1,6 +1,6 @@
 # API Node.js
 
-API con Express, conexión a Firestore y un middleware de autenticación con Firebase Authentication.
+API con Express, registro y listado de dominios en Firestore y autenticación con Firebase Authentication.
 
 ## Ejecutar
 
@@ -61,9 +61,25 @@ Se comprobó el acceso con `npm run check:firestore`. Resultado: `Conexión con 
 
 Se usa Firebase Authentication con correo y contraseña porque el proyecto ya usa Firebase y permite manejar las cuentas y la sesión sin guardar contraseñas en la API.
 
-La UI registra e inicia sesión con el SDK de Firebase. En sus solicitudes a la API envía el ID token en `Authorization: Bearer <token>`. `requireAuth` lo verifica con Firebase Admin y obtiene el UID de la cuenta. Ese UID se usará como `ownerId` al implementar los dominios.
+La UI registra e inicia sesión con el SDK de Firebase. En sus solicitudes a la API envía el ID token en `Authorization: Bearer <token>`. `requireAuth` lo verifica con Firebase Admin y obtiene el UID de la cuenta. Ese UID identifica al propietario de los dominios.
 
-Los endpoints de dominios, reglas y credenciales todavía no están implementados. Al crearlos, se protegerán con `requireAuth`, que responde `401` si falta el token o no es válido, y `503` si falla la validación por un problema del servicio o de configuración. La autenticación de usuarios de recursos se hará por separado.
+El listado y el registro de dominios usan `requireAuth`, que responde `401` si falta el token o no es válido, y `503` si falla la validación por un problema del servicio o de configuración. La autenticación de usuarios de recursos se hará por separado.
+
+## Dominios
+
+`GET /api/domains` devuelve una lista con los dominios de la cuenta autenticada. Si no tiene dominios, devuelve `[]`.
+
+`POST /api/domains` recibe el nombre y el límite de caché en bytes:
+
+```json
+{"name":"apache.local","maxCacheBytes":1048576}
+```
+
+El nombre se guarda en minúsculas. El propietario se obtiene de la sesión y el dominio queda sin verificar, con un token para el registro TXT `_verificacion.<dominio>`. La respuesta incluye el dominio y los datos de ese registro.
+
+Responde `201` al guardar, `400` si los datos no son válidos, `409` si el dominio ya está en esa cuenta y `503` si falla Firestore. El límite debe ser un entero positivo de bytes y el nombre debe permitir formar un registro TXT de hasta 253 caracteres.
+
+La eliminación de dominios, la consulta del TXT, las reglas y las credenciales siguen pendientes. `apache.local` sirve para probar el guardado local; verificar la propiedad requiere poder modificar el DNS que consulta la API.
 
 ## Probar
 
@@ -81,13 +97,13 @@ Debe responder con HTTP `200` y este JSON:
 
 Una ruta inexistente responde con HTTP `404` y `{"error":"Ruta no encontrada"}`. Si se cambia `HOST` o `PORT`, ajustar la dirección del comando.
 
-Para probar el middleware de autenticación:
+Para probar la autenticación y los dominios:
 
 ```bash
 npm test
 ```
 
-Las pruebas cubren acceso sin sesión, tokens inválidos o vencidos, identidad verificada y fallos del servicio. Usan una ruta que solo existe durante las pruebas, credenciales locales y validación de sesiones simulada. No crean cuentas ni modifican Firebase.
+Las pruebas cubren autenticación, validaciones, duplicados, separación de cuentas y errores del servicio. Usan credenciales locales y documentos en memoria. No crean cuentas ni modifican Firebase.
 
 ## Referencias
 
@@ -98,4 +114,6 @@ Las pruebas cubren acceso sin sesión, tokens inválidos o vencidos, identidad v
 - [Firebase Admin SDK](https://firebase.google.com/docs/admin/setup): configuración de la cuenta de servicio y las credenciales.
 - [Verificar ID tokens](https://firebase.google.com/docs/auth/admin/verify-id-tokens): validación de la sesión en la API con Firebase Admin.
 - [Firestore desde un servidor](https://firebase.google.com/docs/firestore/quickstart-server): inicialización del cliente y acceso a la base de datos.
+- [Crear documentos](https://docs.cloud.google.com/nodejs/docs/reference/firestore/latest/firestore/documentreference#create_data_): creación de documentos sin sobrescribir los existentes.
+- [Consultas de Firestore](https://firebase.google.com/docs/firestore/query-data/queries): filtrado de dominios por propietario.
 - [Subir claves de cuentas de servicio](https://docs.cloud.google.com/iam/docs/keys-upload): registro del certificado público en Google Cloud.

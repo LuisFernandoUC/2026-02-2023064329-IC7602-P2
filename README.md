@@ -188,7 +188,7 @@ La documentación debe cubrir **todos** los componentes implementados, instalado
 
 ### 8.5 REST API Node.js
 
-La API incluye `GET /api/health` y un middleware para verificar los ID tokens de Firebase Authentication. Los endpoints del panel siguen pendientes. Ver [cómo ejecutarla y probarla](api-node/README.md).
+La API incluye `GET /api/health`, el listado y el registro de dominios en `/api/domains`. Estas dos últimas rutas verifican la sesión con Firebase Authentication y usan el UID de la cuenta como propietario. Ver [cómo ejecutarla y probarla](api-node/README.md).
 
 La conexión a Firestore se configura con variables de entorno. El comando `npm run check:firestore`, desde `api-node/`, permite comprobar el acceso. Ver [configuración de Firestore](api-node/README.md#configurar-firestore).
 
@@ -198,7 +198,7 @@ Propuesta de [datos y endpoints iniciales](Docs/Contratos/API-Node.md), con los 
 
 ### 8.6 UI
 
-La UI usa React, Vite y Tailwind CSS. El registro, inicio y cierre de sesión están conectados a Firebase Authentication. Las pantallas de dominios, reglas y credenciales todavía usan datos de ejemplo. Ver [configuración y ejecución de la UI](ui/README.md).
+La UI usa React, Vite y Tailwind CSS. El registro, inicio y cierre de sesión están conectados a Firebase Authentication. El formulario y el listado de dominios usan la API y Firestore. La verificación TXT, la eliminación, las reglas y las credenciales siguen pendientes. Ver [configuración y ejecución de la UI](ui/README.md).
 
 ### 8.7 Automatización
 

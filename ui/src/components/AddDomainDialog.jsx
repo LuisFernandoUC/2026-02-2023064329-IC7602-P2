@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { apiRequest } from '../api.js';
 
-export default function AddDomainDialog({ onClose }) {
+export default function AddDomainDialog({ onClose, onCreated }) {
   const dialogRef = useRef(null);
   const [message, setMessage] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     dialogRef.current.showModal();
@@ -12,7 +14,7 @@ export default function AddDomainDialog({ onClose }) {
     dialogRef.current.close();
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
     const form = event.currentTarget;
     const domainInput = form.elements.namedItem('domain');
@@ -32,7 +34,20 @@ export default function AddDomainDialog({ onClose }) {
       return;
     }
 
-    setMessage('Guardar dominios aún no está disponible.');
+    setMessage('');
+    setSubmitting(true);
+    try {
+      const savedDomain = await apiRequest('/api/domains', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: domain, maxCacheBytes: Math.round(cacheInput.valueAsNumber * 1024 * 1024) }),
+      });
+      onCreated(savedDomain);
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -74,11 +89,11 @@ export default function AddDomainDialog({ onClose }) {
         </div>
 
         <p className="rounded bg-soft p-3 text-sm leading-6 text-muted">Después de guardar el dominio, podrás verificar su propiedad con un registro TXT.</p>
-        {message && <p role="status" className="form-message">{message}</p>}
+        {message && <p role="alert" className="form-message">{message}</p>}
 
         <div className="flex justify-end gap-3 border-t border-line pt-5">
           <button type="button" onClick={closeDialog} className="rounded border border-line px-4 py-2.5 text-sm font-medium hover:bg-soft">Cancelar</button>
-          <button type="submit" className="button-primary">Agregar dominio</button>
+          <button type="submit" disabled={submitting} className="button-primary">{submitting ? 'Guardando…' : 'Agregar dominio'}</button>
         </div>
       </form>
     </dialog>

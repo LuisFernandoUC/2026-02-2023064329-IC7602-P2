@@ -17,7 +17,7 @@ export default function VerifyDomain({ domain }) {
       <>
         <a href="#/dominios" className="text-link text-sm">← Volver a Mis dominios</a>
         <h1 className="mt-6 text-3xl font-semibold">Verificar dominio</h1>
-        <p className="mt-4 text-muted">No hay un registro TXT disponible para este dominio en la vista de ejemplo.</p>
+        <p className="mt-4 text-muted">No hay un registro TXT disponible para este dominio.</p>
       </>
     );
   }
@@ -39,8 +39,6 @@ export default function VerifyDomain({ domain }) {
       <section className="mt-7 max-w-3xl rounded-xl border border-line bg-surface p-6" aria-labelledby="txt-title">
         <h2 id="txt-title" className="text-lg font-semibold">Agrega un registro TXT en tu proveedor de DNS</h2>
         <p className="mt-3 text-sm leading-6 text-muted">Crea un registro de tipo TXT con el nombre y el valor asignados a tu dominio. Después vuelve aquí para verificar su propiedad.</p>
-
-        <p className="form-message mt-5">Datos de ejemplo. No agregues este registro a tu DNS.</p>
 
         <dl className="mt-6 space-y-5">
           <div>

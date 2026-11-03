@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { signOut } from 'firebase/auth';
 import { getPanelAuth } from '../auth.js';
+import { apiRequest } from '../api.js';
 import { Brand } from '../components/Layout.jsx';
 import AddDomainDialog from '../components/AddDomainDialog.jsx';
 import DeleteDialog from '../components/DeleteDialog.jsx';
@@ -8,51 +9,33 @@ import VerifyDomain from './VerifyDomain.jsx';
 import DomainDetail from './DomainDetail.jsx';
 import RuleForm from './RuleForm.jsx';
 
-const exampleDomains = [
-  {
-    id: 'example',
-    name: 'example.com',
-    verified: true,
-    cacheSize: '500 MB',
-    rules: [
-      {
-        id: 'images', pathPattern: '/imagenes/*', cacheSize: '200 MB', authMode: 'api-key',
-        keys: [{ id: 'clave-ejemplo-1' }, { id: 'clave-ejemplo-2' }],
-        fileTypes: [
-          { extension: 'png', ttlSeconds: 86400, replacementPolicy: 'LRU' },
-          { extension: 'jpg', ttlSeconds: 43200, replacementPolicy: 'LFU' },
-          { extension: 'webp', ttlSeconds: 86400, replacementPolicy: 'FIFO' },
-        ],
-      },
-      {
-        id: 'private', pathPattern: '/privado/*', cacheSize: '150 MB', authMode: 'password',
-        users: [
-          { id: 'usuario-ejemplo-1', username: 'usuario_cache' },
-          { id: 'usuario-ejemplo-2', username: 'operador_zona' },
-        ],
-        fileTypes: [
-          { extension: 'pdf', ttlSeconds: 3600, replacementPolicy: 'LRU' },
-          { extension: 'docx', ttlSeconds: 3600, replacementPolicy: 'LRU' },
-          { extension: 'html', ttlSeconds: 300, replacementPolicy: 'LRU' },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'static',
-    name: 'static.example.net',
-    verified: false,
-    cacheSize: '250 MB',
-    verificationRecord: { name: '_verificacion.static.example.net', value: 'token-de-ejemplo' },
-    rules: [],
-  },
-];
+function domainView(domain) {
+  return { ...domain, cacheSize: `${domain.maxCacheBytes / (1024 * 1024)} MB` };
+}
 
 export default function Domains({ user, verificationId, domainId, ruleForm }) {
+  const [domains, setDomains] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [addingDomain, setAddingDomain] = useState(false);
   const [deletingDomain, setDeletingDomain] = useState(null);
   const [message, setMessage] = useState('');
   const [signingOut, setSigningOut] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    apiRequest('/api/domains')
+      .then((data) => { if (active) setDomains(data.map(domainView)); })
+      .catch((error) => { if (active) setLoadError(error.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [user.uid]);
+
+  function handleCreated(domain) {
+    setDomains((current) => [...current, domainView(domain)]);
+    setAddingDomain(false);
+    setMessage('Dominio guardado. Falta verificar su propiedad.');
+  }
 
   async function handleLogout() {
     setSigningOut(true);
@@ -84,12 +67,16 @@ export default function Domains({ user, verificationId, domainId, ruleForm }) {
 
       <main className="mx-auto max-w-7xl px-6 py-10">
         {message && <p role="status" className="form-message mb-5">{message}</p>}
-        {verificationId ? (
-          <VerifyDomain key={verificationId} domain={exampleDomains.find((domain) => domain.id === verificationId)} />
+        {loading ? (
+          <p role="status" className="text-muted">Cargando dominios…</p>
+        ) : loadError ? (
+          <p role="alert" className="form-message">{loadError}</p>
+        ) : verificationId ? (
+          <VerifyDomain key={verificationId} domain={domains.find((domain) => domain.id === verificationId)} />
         ) : ruleForm ? (
-          <RuleForm key={`${ruleForm.domainId}/${ruleForm.ruleId ?? 'new'}`} domain={exampleDomains.find((domain) => domain.id === ruleForm.domainId)} ruleId={ruleForm.ruleId} />
+          <RuleForm key={`${ruleForm.domainId}/${ruleForm.ruleId ?? 'new'}`} domain={domains.find((domain) => domain.id === ruleForm.domainId)} ruleId={ruleForm.ruleId} />
         ) : domainId ? (
-          <DomainDetail domain={exampleDomains.find((domain) => domain.id === domainId)} />
+          <DomainDetail domain={domains.find((domain) => domain.id === domainId)} />
         ) : (
           <>
             <div className="flex flex-wrap items-center justify-between gap-5 border-b border-line pb-7">
@@ -102,46 +89,51 @@ export default function Domains({ user, verificationId, domainId, ruleForm }) {
               </button>
             </div>
 
-            <p className="my-5 text-sm text-muted">Vista con datos de ejemplo. Todavía no se cargan los dominios de tu cuenta.</p>
-
-            <div className="overflow-x-auto rounded-lg border border-line bg-surface">
-              <table className="w-full text-left text-sm">
-                <caption className="sr-only">Dominios de ejemplo y su estado de verificación</caption>
-                <thead className="bg-soft text-xs uppercase tracking-wide text-muted">
-                  <tr>
-                    <th scope="col" className="px-5 py-4">Dominio</th>
-                    <th scope="col" className="px-5 py-4">Estado de verificación</th>
-                    <th scope="col" className="px-5 py-4">Límite de caché</th>
-                    <th scope="col" className="px-5 py-4 text-right">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {exampleDomains.map((domain) => (
-                    <tr key={domain.id} className="border-t border-line">
-                      <th scope="row" className="px-5 py-5 font-mono font-semibold">{domain.name}</th>
-                      <td className="px-5 py-5">
-                        <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-medium ${domain.verified ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
-                          <span aria-hidden="true">{domain.verified ? '✓' : '◷'}</span>
-                          {domain.verified ? 'Verificado' : 'Pendiente'}
-                        </span>
-                      </td>
-                      <td className="whitespace-nowrap px-5 py-5 font-mono text-muted">{domain.cacheSize}</td>
-                      <td className="px-5 py-5">
-                        <div className="flex justify-end gap-4 whitespace-nowrap">
-                          {!domain.verified && <a href={`#/dominios/${domain.id}/verificar`} className="text-link">Verificar</a>}
-                          <a href={`#/dominios/${domain.id}`} className="text-link" aria-label={`Abrir ${domain.name}`}>Abrir</a>
-                          <button type="button" onClick={() => { setDeletingDomain(domain); setMessage(''); }} aria-label={`Eliminar dominio ${domain.name}`} className="rounded text-red-700 hover:underline">Eliminar</button>
-                        </div>
-                      </td>
+            {domains.length === 0 ? (
+              <div className="mt-7 rounded-lg border border-line bg-surface px-6 py-12 text-center">
+                <h2 className="text-lg font-semibold">Todavía no tienes dominios</h2>
+                <p className="mt-3 text-sm text-muted">Agrega un dominio para configurar su caché.</p>
+              </div>
+            ) : (
+              <div className="mt-7 overflow-x-auto rounded-lg border border-line bg-surface">
+                <table className="w-full text-left text-sm">
+                  <caption className="sr-only">Tus dominios y su estado de verificación</caption>
+                  <thead className="bg-soft text-xs uppercase tracking-wide text-muted">
+                    <tr>
+                      <th scope="col" className="px-5 py-4">Dominio</th>
+                      <th scope="col" className="px-5 py-4">Estado de verificación</th>
+                      <th scope="col" className="px-5 py-4">Límite de caché</th>
+                      <th scope="col" className="px-5 py-4 text-right">Acciones</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {domains.map((domain) => (
+                      <tr key={domain.id} className="border-t border-line">
+                        <th scope="row" className="px-5 py-5 font-mono font-semibold">{domain.name}</th>
+                        <td className="px-5 py-5">
+                          <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-medium ${domain.verified ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+                            <span aria-hidden="true">{domain.verified ? '✓' : '◷'}</span>
+                            {domain.verified ? 'Verificado' : 'Pendiente'}
+                          </span>
+                        </td>
+                        <td className="whitespace-nowrap px-5 py-5 font-mono text-muted">{domain.cacheSize}</td>
+                        <td className="px-5 py-5">
+                          <div className="flex justify-end gap-4 whitespace-nowrap">
+                            {!domain.verified && <a href={`#/dominios/${domain.id}/verificar`} className="text-link">Verificar</a>}
+                            <a href={`#/dominios/${domain.id}`} className="text-link" aria-label={`Abrir ${domain.name}`}>Abrir</a>
+                            <button type="button" onClick={() => { setDeletingDomain(domain); setMessage(''); }} aria-label={`Eliminar dominio ${domain.name}`} className="rounded text-red-700 hover:underline">Eliminar</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </>
         )}
       </main>
-      {addingDomain && <AddDomainDialog onClose={() => setAddingDomain(false)} />}
+      {addingDomain && <AddDomainDialog onClose={() => setAddingDomain(false)} onCreated={handleCreated} />}
       {deletingDomain && (
         <DeleteDialog
           title="¿Eliminar dominio?"

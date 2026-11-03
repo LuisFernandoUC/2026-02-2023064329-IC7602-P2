@@ -2,7 +2,7 @@
 
 **Responsable:** Nicole Parra Valverde
 
-**Estado:** implementado `/api/health` y preparado el middleware de autenticación. Las rutas del panel y de las cachés son propuestas.
+**Estado:** implementados `/api/health`, `GET /api/domains` y `POST /api/domains`. Las demás rutas son propuestas.
 
 Basado en las páginas 4 y 5 del [enunciado](../Proyectos-2026-02-IC7602-P2.pdf).
 
@@ -61,12 +61,12 @@ La suma de archivos en caché no puede superar el límite del dominio, aunque ca
 
 Estas rutas requieren iniciar sesión. Cada cuenta solo puede administrar sus propios datos.
 
-El registro, inicio y cierre de sesión del panel usan Firebase Authentication con correo y contraseña desde la UI. Las solicitudes envían el ID token en `Authorization: Bearer <token>`. Al implementar estas rutas, se usará `requireAuth` para verificarlo con Firebase Admin y obtener el propietario del UID verificado.
+El registro, inicio y cierre de sesión del panel usan Firebase Authentication con correo y contraseña desde la UI. Las solicitudes envían el ID token en `Authorization: Bearer <token>`. Las rutas de listado y registro de dominios usan `requireAuth` para verificarlo con Firebase Admin y obtener el propietario del UID verificado.
 
 | Método | Ruta | Operación |
 | --- | --- | --- |
-| GET | `/api/domains` | Listar los dominios de la cuenta. |
-| POST | `/api/domains` | Agregar un dominio, su límite de caché y generar el valor TXT. |
+| GET | `/api/domains` | Listar los dominios de la cuenta. Implementada. |
+| POST | `/api/domains` | Agregar un dominio, su límite de caché y generar el valor TXT. Implementada. |
 | DELETE | `/api/domains/:domainId` | Eliminar el dominio, sus reglas, usuarios, claves y sesiones. |
 | POST | `/api/domains/:domainId/verify` | Consultar el TXT y verificar la propiedad. |
 | GET | `/api/domains/:domainId/rules` | Listar las reglas de URL. |
@@ -81,9 +81,11 @@ El registro, inicio y cierre de sesión del panel usan Firebase Authentication c
 | POST | `/api/rules/:ruleId/keys` | Crear una API key y devolver su valor una sola vez. |
 | DELETE | `/api/rules/:ruleId/keys/:keyId` | Eliminar una API key. |
 
-Al agregar un dominio, la API devuelve el nombre y el valor del TXT que se debe crear. Luego consulta ese registro para verificar la propiedad. Solo los dominios verificados se envían a las cachés.
+Al agregar un dominio, la API devuelve el registro `_verificacion.<dominio>` con un token generado en el servidor. Se guarda con `verified: false`. La consulta del TXT para verificar la propiedad sigue pendiente. Solo los dominios verificados se enviarán a las cachés.
 
-La comprobación del propietario se agregará al implementar cada ruta de dominios, reglas y credenciales.
+El listado filtra por el UID de la sesión y el registro toma ese mismo UID como `ownerId`. El cliente no puede elegir otro propietario ni marcar el dominio como verificado. El mismo dominio no puede repetirse en una cuenta.
+
+La comprobación del propietario se agregará al implementar las demás rutas del panel.
 
 ## 4. Endpoints para las cachés
 
@@ -104,8 +106,8 @@ La caché debe autenticarse ante la API. Esa autenticación es distinta de la AP
 
 | Acuerdo | Participantes |
 | --- | --- |
-| Aplicar los permisos por propietario al implementar las rutas del panel. | Nicole |
-| Definir el nombre y el valor del registro TXT. | Nicole y Luis Fernando |
+| Aplicar los permisos por propietario al implementar las demás rutas del panel. | Nicole |
+| Implementar la consulta del registro TXT para verificar dominios. | Nicole y Luis Fernando |
 | Definir cómo funciona `*`, qué regla gana si coinciden varias y qué pasa si ninguna coincide. | Nicole y Fabricio |
 | Definir el formato de configuración, el origen de los archivos y cómo la caché recibe los cambios, incluidas las eliminaciones de claves o usuarios. | Nicole y Fabricio |
 | Definir cómo se autentica la caché y qué envía y recibe al validar el acceso. | Nicole y Fabricio |

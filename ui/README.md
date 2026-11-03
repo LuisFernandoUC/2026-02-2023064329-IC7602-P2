@@ -1,6 +1,6 @@
 # UI
 
-Panel con React, Vite y Tailwind CSS. El registro, inicio y cierre de sesión usan Firebase Authentication. Las pantallas de dominios, reglas y credenciales todavía usan datos de ejemplo.
+Panel con React, Vite y Tailwind CSS. El registro, inicio y cierre de sesión usan Firebase Authentication. El formulario y el listado de dominios están conectados a la API y Firestore. Las operaciones de reglas y credenciales siguen pendientes.
 
 ## Ejecutar
 
@@ -35,7 +35,9 @@ Estas variables son la configuración pública del SDK web. La clave privada de 
 
 Abrir `http://127.0.0.1:5173/`. **Crear cuenta** registra el correo y la contraseña en Firebase e inicia sesión. Una cuenta existente entra desde **Iniciar sesión**. Firebase conserva la sesión al recargar y **Cerrar sesión** la termina en el navegador.
 
-Las pantallas del panel requieren sesión. Las solicitudes hechas con `apiRequest` envían el ID token para que la API lo verifique. Los dominios aún no se consultan ni se guardan en Firestore.
+Las pantallas del panel requieren sesión. Las solicitudes hechas con `apiRequest` envían el ID token para que la API lo verifique. El listado muestra únicamente los dominios de esa cuenta y empieza vacío.
+
+**Agregar dominio** guarda el nombre y el límite de caché. La UI muestra MB y la API recibe bytes (1 MB = 1 048 576 bytes). Al guardarlo aparece como pendiente y se pueden consultar los datos de su registro TXT. La verificación y la eliminación todavía no están disponibles.
 
 `#/acceso-recurso` es el formulario para usuarios de recursos y permanece público. Todavía falta conectarlo con la API de acceso a las cachés; no usa la cuenta del panel.
 
@@ -46,6 +48,8 @@ npm run build
 ```
 
 Para probar el flujo completo, crear una cuenta desde la UI, recargar la página, cerrar sesión e ingresar de nuevo. Sin sesión, abrir `#/dominios` debe volver a **Iniciar sesión**. Contraseñas distintas en el registro deben mostrar un mensaje.
+
+Para probar dominios, agregar `apache.local` con un límite de 1 MB y recargar la página. Debe seguir en la lista como pendiente. Intentar agregarlo otra vez debe mostrar un error. Este nombre se usa para las pruebas locales del grupo; no confirma propiedad mediante DNS público.
 
 ## Referencias
 

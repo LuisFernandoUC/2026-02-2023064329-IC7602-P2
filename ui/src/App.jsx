@@ -65,7 +65,7 @@ export default function App() {
   if (!user) return route === '#/crear-cuenta' ? <Register /> : <Login />;
 
   if (isPanelRoute) {
-    return <Domains user={user} verificationId={verificationId} domainId={domainId} ruleForm={ruleRoute ? { domainId: ruleRoute[1], ruleId: ruleRoute[2] } : null} />;
+    return <Domains key={user.uid} user={user} verificationId={verificationId} domainId={domainId} ruleForm={ruleRoute ? { domainId: ruleRoute[1], ruleId: ruleRoute[2] } : null} />;
   }
   return <p role="status" className="p-6 text-muted">Abriendo dominios…</p>;
 }
