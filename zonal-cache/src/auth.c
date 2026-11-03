@@ -72,6 +72,13 @@ static cJSON *decode_json_part(const char *part, size_t len)
 token_status_t auth_token_verify(const char *secret, const char *token, const char *domain,
                                  time_t now, char *user, size_t user_size, time_t *exp_out)
 {
+    return auth_token_verify_scope(secret, token, domain, NULL, now, user, user_size, exp_out);
+}
+
+token_status_t auth_token_verify_scope(const char *secret, const char *token, const char *domain,
+                                       const char *rule_id, time_t now, char *user,
+                                       size_t user_size, time_t *exp_out)
+{
     if (!secret || !*secret || !token)
         return TOKEN_MALFORMED;
     const char *dot1 = strchr(token, '.');
@@ -99,12 +106,16 @@ token_status_t auth_token_verify(const char *secret, const char *token, const ch
     const cJSON *exp = cJSON_GetObjectItemCaseSensitive(payload, "exp");
     const cJSON *dom = cJSON_GetObjectItemCaseSensitive(payload, "domain");
     const cJSON *sub = cJSON_GetObjectItemCaseSensitive(payload, "sub");
-    if (!cJSON_IsNumber(exp) || !cJSON_IsString(dom) || !cJSON_IsString(sub))
+    const cJSON *rule = cJSON_GetObjectItemCaseSensitive(payload, "rule");
+    if (!cJSON_IsNumber(exp) || !cJSON_IsString(dom) || !cJSON_IsString(sub) ||
+        (rule && !cJSON_IsString(rule)))
         status = TOKEN_MALFORMED;
     else if ((time_t)exp->valuedouble <= now)
         status = TOKEN_EXPIRED;
     else if (!zc_strcaseeq(dom->valuestring, domain))
         status = TOKEN_WRONG_DOMAIN;
+    else if (rule && rule_id && strcmp(rule->valuestring, rule_id) != 0)
+        status = TOKEN_WRONG_RULE; /* sesión emitida para otra regla del mismo dominio */
 
     if (status == TOKEN_OK) {
         if (user)
@@ -118,6 +129,12 @@ token_status_t auth_token_verify(const char *secret, const char *token, const ch
 
 char *auth_token_create(const char *secret, const char *domain, const char *user, time_t exp)
 {
+    return auth_token_create_scoped(secret, domain, user, NULL, exp);
+}
+
+char *auth_token_create_scoped(const char *secret, const char *domain, const char *user,
+                               const char *rule_id, time_t exp)
+{
     static const char header[] = "{\"alg\":\"HS256\",\"typ\":\"JWT\"}";
 
     cJSON *payload = cJSON_CreateObject();
@@ -125,6 +142,8 @@ char *auth_token_create(const char *secret, const char *domain, const char *user
         return NULL;
     cJSON_AddStringToObject(payload, "domain", domain);
     cJSON_AddStringToObject(payload, "sub", user);
+    if (rule_id)
+        cJSON_AddStringToObject(payload, "rule", rule_id);
     cJSON_AddNumberToObject(payload, "exp", (double)exp);
     char *payload_str = cJSON_PrintUnformatted(payload);
     cJSON_Delete(payload);
@@ -163,6 +182,8 @@ const char *auth_token_status_text(token_status_t status)
         return "sesión expirada";
     case TOKEN_WRONG_DOMAIN:
         return "el token pertenece a otro dominio";
+    case TOKEN_WRONG_RULE:
+        return "el token pertenece a otra URL del dominio";
     }
     return "desconocido";
 }
