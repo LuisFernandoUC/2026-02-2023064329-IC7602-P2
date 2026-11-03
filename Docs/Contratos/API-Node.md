@@ -2,7 +2,7 @@
 
 **Responsable:** Nicole Parra Valverde
 
-**Estado:** implementados `/api/health`, `GET /api/domains`, `POST /api/domains` y `GET /api/cache/config`. Las demás rutas son propuestas.
+**Estado:** implementados `/api/health`, `GET /api/domains`, `POST /api/domains`, la administración de reglas y `GET /api/cache/config`. Las demás rutas son propuestas.
 
 Basado en las páginas 4 y 5 del [enunciado](../Proyectos-2026-02-IC7602-P2.pdf).
 
@@ -25,7 +25,7 @@ Campos propuestos. Tamaños en bytes y TTL en segundos.
 | --- | --- | --- |
 | Cuenta del panel | `id` (UID de Firebase Authentication), `email` | Propietario de los dominios. |
 | Dominio | `id`, `ownerId`, `name`, `originUrl`, `maxCacheBytes`, `verified`, `verificationToken` | Dominio, propietario, servidor de origen, límite de caché y verificación TXT. |
-| Regla de URL | `id`, `domainId`, `pathPattern`, `maxCacheBytes`, `fileTypes`, `authMode` | Configuración de una ruta, con soporte de comodines. |
+| Regla de URL | `id`, `pathPattern`, `maxCacheBytes`, `fileTypes`, `authMode` | Configuración de una ruta, guardada bajo su dominio y con soporte de comodines. |
 | Usuario de un recurso | `id`, `ruleId`, `username`, `passwordHash` | Acceso a URLs con usuario y contraseña. |
 | API key | `id`, `ruleId`, `keyHash` | Acceso a URLs con `x-api-key`. |
 | Sesión de un recurso | `id`, `ruleId`, `userId`, `tokenHash`, `expiresAt` | Acceso después del login, hasta que venza la sesión. |
@@ -41,7 +41,6 @@ Las contraseñas de usuarios de recursos, las claves y los tokens de sesión se 
 ```json
 {
   "id": "regla-1",
-  "domainId": "dominio-1",
   "pathPattern": "/imagenes/*",
   "maxCacheBytes": 10485760,
   "fileTypes": [
@@ -69,10 +68,10 @@ El registro, inicio y cierre de sesión del panel usan Firebase Authentication c
 | POST | `/api/domains` | Agregar un dominio, su servidor de origen y límite de caché, y generar el valor TXT. Implementada. |
 | DELETE | `/api/domains/:domainId` | Eliminar el dominio, sus reglas, usuarios, claves y sesiones. |
 | POST | `/api/domains/:domainId/verify` | Consultar el TXT y verificar la propiedad. |
-| GET | `/api/domains/:domainId/rules` | Listar las reglas de URL. |
-| POST | `/api/domains/:domainId/rules` | Crear una regla de URL. |
-| PUT | `/api/domains/:domainId/rules/:ruleId` | Modificar una regla de URL. |
-| DELETE | `/api/domains/:domainId/rules/:ruleId` | Eliminar la regla, sus usuarios, claves y sesiones. |
+| GET | `/api/domains/:domainId/rules` | Listar las reglas de URL. Implementada. |
+| POST | `/api/domains/:domainId/rules` | Crear una regla de URL. Implementada. |
+| PUT | `/api/domains/:domainId/rules/:ruleId` | Modificar una regla de URL. Implementada. |
+| DELETE | `/api/domains/:domainId/rules/:ruleId` | Eliminar la regla y sus subcolecciones. Implementada. |
 | GET | `/api/rules/:ruleId/users` | Listar usuarios de acceso, sin contraseñas ni hashes. |
 | POST | `/api/rules/:ruleId/users` | Crear un usuario de acceso. |
 | PUT | `/api/rules/:ruleId/users/:userId` | Modificar el usuario o su contraseña. |
@@ -87,7 +86,11 @@ Al agregar un dominio, la API devuelve el registro `_verificacion.<dominio>` con
 
 El listado filtra por el UID de la sesión y el registro toma ese mismo UID como `ownerId`. El cliente no puede elegir otro propietario ni marcar el dominio como verificado. El mismo dominio no puede repetirse en una cuenta.
 
-La comprobación del propietario se agregará al implementar las demás rutas del panel.
+Las reglas se guardan en `domains/{domainId}/rules/{ruleId}`. Todas sus operaciones comprueban la sesión y el propietario del dominio. Se pueden configurar mientras el dominio esté pendiente de verificación. El tamaño debe ser positivo y no superar el límite del dominio; las extensiones no se repiten, el TTL es un entero mayor o igual que cero y las políticas son las cinco indicadas arriba. El ID se genera en el servidor.
+
+El listado responde `200`, el registro `201`, la edición `200` y la eliminación `204`. Datos inválidos responden `400`; un dominio ajeno o inexistente, o una regla inexistente, responde `404`. Un fallo de Firestore responde `503`. La edición conserva el ID y las subcolecciones; la eliminación usa `recursiveDelete` para no dejarlas huérfanas.
+
+La comprobación del propietario se agregará al implementar las rutas restantes del panel.
 
 ## 4. Endpoints para las cachés
 

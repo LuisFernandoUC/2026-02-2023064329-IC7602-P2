@@ -231,7 +231,7 @@ El DNS Interceptor se instala **después** de la caché, porque busca la IP de l
 
 ## 6. Cambios necesarios en el API Node.js y la UI
 
-El endpoint `GET /api/cache/config` y el campo `originUrl` al registrar dominios ya están implementados. Los demás cambios de esta sección siguen como propuestas pendientes.
+El endpoint `GET /api/cache/config`, el campo `originUrl` y las operaciones de reglas de URL ya están implementados. El login de recursos y la administración de claves y usuarios siguen pendientes.
 
 ### 6.1 Variables de entorno nuevas del API
 
@@ -259,6 +259,8 @@ domains/{domainId}              ownerId, name, maxCacheBytes, verified, verifica
   - Se envía solo `keyHash`, por el endpoint autenticado con `CACHE_API_TOKEN`.
   - Los `passwordHash` nunca salen del API.
 - **Unicidad:** el id del documento es `<uid>_<dominio>`, así que dos cuentas pueden registrar el mismo dominio. Solo una debería quedar con `verified: true`.
+
+Las reglas ya se pueden listar, crear, editar y eliminar desde la UI. La API comprueba el propietario y guarda solo sus campos de configuración bajo `domains/{domainId}/rules/{ruleId}`. La eliminación borra también sus subcolecciones. El registro de claves y usuarios aún no está conectado.
 
 ### 6.3 Endpoints para las cachés
 

@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { requireAuth } from './auth.js';
 import { getDb } from './firestore.js';
 import cacheRouter from './cache.js';
+import rulesRouter from './rules.js';
 
 const app = express();
 
@@ -74,6 +75,7 @@ app.post('/api/domains', requireAuth, express.json(), async (req, res) => {
 });
 
 app.use('/api/cache', cacheRouter);
+app.use('/api/domains/:domainId/rules', rulesRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Ruta no encontrada' });
