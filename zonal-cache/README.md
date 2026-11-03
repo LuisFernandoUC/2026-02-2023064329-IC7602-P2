@@ -59,15 +59,15 @@ sequenceDiagram
     participant U as UI (Vercel)
     participant A as API Node.js
     N->>C: GET /privado/doc.html
-    C-->>N: 302 ZC_LOGIN_URL?domain=sitio.com&callback=http://sitio.com/__zc/auth?next=...
+    C-->>N: 302 ZC_LOGIN_URL?domain=sitio.com&path=/privado/doc.html&callback=http://sitio.com/__zc/auth?next=...
     N->>U: formulario de login
-    U->>A: usuario + contraseña del dominio
-    A-->>U: JWT HS256 {domain, sub, exp}
+    U->>A: POST /api/cache/sessions {domain, path, usuario, contraseña}
+    A-->>U: JWT HS256 {domain, sub, rule, exp}
     U-->>N: 302 <callback>&token=<JWT>
     N->>C: GET /__zc/auth?next=...&token=<JWT>
     C-->>N: 302 next + Set-Cookie: zc_session=<JWT>
     N->>C: GET /privado/doc.html (Cookie: zc_session)
-    C-->>N: 200 (se verifica firma, expiración y dominio)
+    C-->>N: 200 (se verifica firma, expiración, dominio y regla)
 ```
 
 `GET /__zc/logout[?next=/ruta]` borra la cookie de sesión.
@@ -159,10 +159,11 @@ Se requiere `ZC_CONFIG_URL` o `ZC_CONFIG_FILE`.
   "domains": [
     {
       "name": "apache.p2.local",
-      "origin": "http://apache",
+      "origin": "http://apache-apache",
       "maxCacheSize": 10485760,
       "urls": [
         {
+          "id": "regla-1",
           "pattern": "/*",
           "cacheSize": 5242880,
           "policy": "LRU",
@@ -189,7 +190,8 @@ Se requiere `ZC_CONFIG_URL` o `ZC_CONFIG_FILE`.
 | Campo | Significado |
 | --- | --- |
 | `name` (o `domain`) | Dominio; admite comodines (`*.ejemplo.com`) |
-| `origin` | Opcional. URL base del origen. Si falta se usa `http(s)://<Host>` |
+| `origin` | URL base del servidor de origen (en Kubernetes, el Service: `http://apache-apache`). Si falta se usa `http(s)://<Host>` |
+| `urls[].id` | Opcional. Id de la regla en Firestore; debe coincidir con el claim `rule` de la sesión |
 | `maxCacheSize` | Bytes máximos en disco para el dominio |
 | `urls[].pattern` | Ruta con comodines `*` y `?`. Gana el patrón más específico |
 | `urls[].cacheSize` | Bytes máximos para esa URL |
@@ -202,13 +204,14 @@ También se aceptan los nombres de campos del borrador del API Node.js ([Docs/Co
 
 | Campo de la caché | Alternativa aceptada |
 | --- | --- |
+| `origin` | `originUrl` |
 | `maxCacheSize` (dominio) | `maxCacheBytes` |
 | `urls` | `rules` |
 | `pattern` | `pathPattern` |
 | `cacheSize` (URL) | `maxCacheBytes` |
 | `auth` | `authMode` (`api-key`, `password`) |
 | `fileTypes[].ttl` | `fileTypes[].ttlSeconds` |
-| `policy` | `fileTypes[0].replacementPolicy` si la URL no define `policy` |
+| `policy` | `replacementPolicy` en la regla, o `fileTypes[0].replacementPolicy` si la regla no define ninguna |
 | `apiKeys[].hash` | `apiKeys[].keyHash` |
 
 Solo se guardan respuestas `200` a `GET` cuyo tipo de archivo tiene TTL y que el origen no marcó con `Cache-Control: no-store` o `private`. El resto pasa directo al origen (`X-Cache: BYPASS`).
@@ -221,21 +224,22 @@ crypto.createHash("sha256").update(apiKey).digest("hex");
 
 ### 4.2 Sesiones de usuario y contraseña
 
-1. La caché redirige a `ZC_LOGIN_URL?domain=<dominio>&callback=<url codificada>`.
-2. La UI autentica a la persona con los usuarios de ese dominio (vía API Node.js).
+1. La caché redirige a `ZC_LOGIN_URL?domain=<dominio>&path=<ruta>&callback=<url codificada>`.
+   Con la UI de Vercel: `ZC_LOGIN_URL=https://<ui>.vercel.app/#/acceso-recurso`.
+2. La UI envía `domain`, `path`, usuario y contraseña al API (`POST /api/cache/sessions`), que busca la regla de esa ruta y valida el usuario.
 3. El API emite un **JWT HS256** firmado con `ZC_SESSION_SECRET` con estos claims:
 
    ```json
-   { "domain": "<dominio tal como viene en el parámetro domain>", "sub": "<usuario>", "exp": 1767225600 }
+   { "domain": "<dominio tal como viene en el parámetro domain>", "sub": "<usuario>", "rule": "<id de la regla>", "exp": 1767225600 }
    ```
 
    ```js
-   jwt.sign({ domain, sub: username }, process.env.ZC_SESSION_SECRET, { algorithm: "HS256", expiresIn: "1h" });
+   jwt.sign({ domain, sub: username, rule: ruleId }, process.env.ZC_SESSION_SECRET, { algorithm: "HS256", expiresIn: "1h" });
    ```
 
 4. La UI redirige a `callback + "&token=" + encodeURIComponent(jwt)`.
 
-Una sesión de un dominio no sirve en otro (`domain` debe coincidir). Los clientes que no son navegador pueden enviar `Authorization: Bearer <jwt>`.
+Una sesión de un dominio no sirve en otro (`domain` debe coincidir). Si el token trae `rule`, solo sirve para la regla con ese `id`; si no lo trae, sirve para todas las URLs con usuario y contraseña del dominio. Los clientes que no son navegador pueden enviar `Authorization: Bearer <jwt>`.
 
 ## 5. Compilar y ejecutar
 
@@ -318,12 +322,13 @@ helm upgrade --install zc ./deploy/helm/zonal-cache \
   --set config.url=https://<api-node>.vercel.app/api/cache/config \
   --set secrets.configToken=<token> \
   --set secrets.sessionSecret=<secreto> \
-  --set loginUrl=https://<ui>.vercel.app/login
+  --set loginUrl='https://<ui>.vercel.app/#/acceso-recurso'
 
 kubectl get svc -l app.kubernetes.io/name=zonal-cache   # IPs para el DNS Interceptor
 ```
 
-- Para probar sin el API, usar `config.inline` en un archivo de valores (se monta como `ZC_CONFIG_FILE`).
+- Para probar sin el API, usar `config.inline` en un archivo de valores (se monta como `ZC_CONFIG_FILE`). [values-local.yaml](../deploy/helm/zonal-cache/values-local.yaml) ya trae Apache y la Rest API Java de los charts de `deploy/helm`.
+- La integración con el DNS Interceptor, el API y la UI está en [Docs/Integracion.md](../Docs/Integracion.md).
 - Para fijar la IP de cada zona (útil para el DNS Interceptor) usar `zones[].clusterIP`.
 - Si `tls.existingSecret` está vacío, el chart genera un certificado autofirmado.
 

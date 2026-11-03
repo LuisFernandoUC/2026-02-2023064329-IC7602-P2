@@ -1,0 +1,59 @@
+# Valores para probar la integración completa en un cluster local (Docker Desktop, minikube o kind)
+# sin depender del API Node.js. Usa los charts de deploy/helm de los demás componentes.
+#
+# Orden de instalación (mismo namespace):
+#   helm install apache        deploy/helm/apache          # Service apache-apache:80
+#   helm install rest-api-java deploy/helm/rest-api-java   # Service rest-api-java-rest-api-java:8080
+#   helm install zonal-cache   deploy/helm/zonal-cache -f deploy/helm/zonal-cache/values-local.yaml
+#   helm install dns-interceptor deploy/helm/dns-interceptor   # toma las IPs de las 3 cachés
+#
+# Los dominios coinciden con los que intercepta el DNS Interceptor por defecto
+# (apache.p2.local y *.cdn.p2.local). Ver Docs/Integracion.md.
+
+config:
+  inline:
+    domains:
+      - name: apache.p2.local
+        origin: http://apache-apache
+        maxCacheSize: 10485760
+        urls:
+          - id: apache-estaticos
+            pattern: "/*"
+            cacheSize: 5242880
+            policy: LRU
+            auth: none
+            fileTypes:
+              - { extension: html, ttl: 60 }
+              - { extension: css, ttl: 300 }
+              - { extension: png, ttl: 3600 }
+      - name: api.cdn.p2.local
+        origin: http://rest-api-java-rest-api-java:8080
+        maxCacheSize: 1048576
+        urls:
+          - id: api-hello
+            pattern: "/api/hello"
+            cacheSize: 65536
+            policy: FIFO
+            auth: none
+            fileTypes:
+              - { extension: "*", ttl: 30 }
+          - id: api-items
+            pattern: "/api/items*"
+            cacheSize: 262144
+            policy: LFU
+            auth: api_key
+            fileTypes:
+              - { extension: "*", ttl: 10 }
+            # SHA-256 de "clave-valida" (solo para pruebas locales)
+            apiKeys:
+              - e2bc022cb9c8b0dfd4db95058c79f8422bdecec430dd3907c945509a6c0926bc
+
+secrets:
+  # Solo para pruebas locales; en el cluster real usar secrets.existingSecret.
+  configToken: no-se-usa-con-config-inline
+  sessionSecret: secreto-local-de-pruebas
+
+tls:
+  altNames:
+    - apache.p2.local
+    - api.cdn.p2.local

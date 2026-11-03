@@ -41,7 +41,7 @@ config:
   inline: {}
   #  domains:
   #    - name: apache.p2.local
-  #      origin: http://apache
+  #      origin: http://apache-apache   # Service del chart apache (release "apache")
   #      maxCacheSize: 10485760
   #      urls:
   #        - pattern: "/*"
@@ -52,6 +52,7 @@ config:
   #            - { extension: html, ttl: 60 }
 
 # Formulario de login de la UI (Vercel) para URLs con usuario y contraseña.
+# Ejemplo: https://<ui>.vercel.app/#/acceso-recurso
 loginUrl: ""
 
 origin:
