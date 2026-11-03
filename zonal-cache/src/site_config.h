@@ -9,7 +9,7 @@
  *     "origin": "http://apache:80",          // opcional; si falta se usa el Host
  *     "maxCacheSize": 10485760,              // bytes máximos en disco para el dominio
  *     "urls": [{
- *       "pattern": "/static/*",              // admite comodines '*' y '?'
+ *       "pattern": "/static/...",             // ruta; admite los comodines asterisco y ?
  *       "cacheSize": 5242880,                // bytes máximos para esta URL
  *       "policy": "LRU",                     // LRU | LFU | FIFO | MRU | RANDOM
  *       "auth": "none",                      // none | api_key | user_password

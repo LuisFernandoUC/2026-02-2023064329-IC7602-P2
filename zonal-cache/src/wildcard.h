@@ -4,7 +4,7 @@
  *   '*' coincide con cualquier secuencia de caracteres (incluso vacía y '/').
  *   '?' coincide con exactamente un carácter.
  *
- * Ejemplos: "/static/*" coincide con "/static/css/app.css";
+ * Ejemplos: "/static/" + asterisco coincide con "/static/css/app.css";
  *           "*.example.com" coincide con "www.example.com".
  */
 #ifndef ZC_WILDCARD_H
