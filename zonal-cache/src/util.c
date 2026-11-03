@@ -81,7 +81,7 @@ void zc_path_extension(const char *path, char *out, size_t out_size)
 
 uint64_t zc_fnv1a64(const char *data, size_t len)
 {
-    uint64_t hash = 1469598103934665603ULL;
+    uint64_t hash = 14695981039346656037ULL; /* offset basis de FNV-1a 64 (0xcbf29ce484222325) */
     for (size_t i = 0; i < len; i++) {
         hash ^= (unsigned char)data[i];
         hash *= 1099511628211ULL;
