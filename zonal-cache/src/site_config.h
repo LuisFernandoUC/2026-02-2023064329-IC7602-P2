@@ -6,9 +6,10 @@
  * {
  *   "domains": [{
  *     "name": "apache.p2.local",            // admite comodines: "*.ejemplo.com"
- *     "origin": "http://apache:80",          // opcional; si falta se usa el Host
+ *     "origin": "http://apache:80",          // servidor de origen (alias: originUrl)
  *     "maxCacheSize": 10485760,              // bytes máximos en disco para el dominio
  *     "urls": [{
+ *       "id": "regla-1",                     // opcional; se compara con el claim "rule"
  *       "pattern": "/static/...",             // ruta; admite los comodines asterisco y ?
  *       "cacheSize": 5242880,                // bytes máximos para esta URL
  *       "policy": "LRU",                     // LRU | LFU | FIFO | MRU | RANDOM
@@ -38,6 +39,7 @@ typedef struct {
 } file_type_rule_t;
 
 typedef struct {
+    char *id; /* identificador de la regla en Firestore; NULL si no viene */
     char *pattern;
     size_t cache_size;
     policy_type_t policy;

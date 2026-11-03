@@ -87,6 +87,26 @@ TEST(token_rejections)
     CHECK_EQ_INT(auth_token_verify("s3cr3t", NULL, "a.com", 1000, NULL, 0, NULL), TOKEN_MALFORMED);
 }
 
+TEST(token_rule_scope)
+{
+    char *tok = auth_token_create_scoped("s3cr3t", "a.com", "luis", "regla-1", 2000);
+    CHECK(tok != NULL);
+    CHECK_EQ_INT(auth_token_verify_scope("s3cr3t", tok, "a.com", "regla-1", 1000, NULL, 0, NULL),
+                 TOKEN_OK);
+    CHECK_EQ_INT(auth_token_verify_scope("s3cr3t", tok, "a.com", "regla-2", 1000, NULL, 0, NULL),
+                 TOKEN_WRONG_RULE);
+    /* Sin regla que comparar (p. ej. el callback /__zc/auth) solo se valida el dominio. */
+    CHECK_EQ_INT(auth_token_verify_scope("s3cr3t", tok, "a.com", NULL, 1000, NULL, 0, NULL),
+                 TOKEN_OK);
+    free(tok);
+
+    /* Token sin claim "rule": vale para cualquier regla del dominio. */
+    tok = auth_token_create("s3cr3t", "a.com", "luis", 2000);
+    CHECK_EQ_INT(auth_token_verify_scope("s3cr3t", tok, "a.com", "regla-2", 1000, NULL, 0, NULL),
+                 TOKEN_OK);
+    free(tok);
+}
+
 TEST(rejects_alg_none)
 {
     /* {"alg":"none"} . {"domain":"a.com","sub":"x","exp":9999999999} . (sin firma) */
@@ -103,5 +123,6 @@ void suite_auth(void)
     RUN(verifies_token_issued_by_node);
     RUN(token_roundtrip);
     RUN(token_rejections);
+    RUN(token_rule_scope);
     RUN(rejects_alg_none);
 }

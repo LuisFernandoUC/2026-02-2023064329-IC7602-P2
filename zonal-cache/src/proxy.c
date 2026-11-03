@@ -62,12 +62,15 @@ static void redirect_to_login(const proxy_t *px, const domain_rule_t *dom,
     snprintf(callback, sizeof(callback), "%s/__zc/auth?next=%s", base, next ? next : "%2F");
     free(next);
 
+    /* La UI muestra domain y path, y el API los usa para buscar la regla del recurso. */
     char *enc_domain = zc_url_encode(dom->name);
+    char *enc_path = zc_url_encode(req->path);
     char *enc_callback = zc_url_encode(callback);
-    snprintf(location, sizeof(location), "%s%cdomain=%s&callback=%s", px->login_url,
+    snprintf(location, sizeof(location), "%s%cdomain=%s&path=%s&callback=%s", px->login_url,
              strchr(px->login_url, '?') ? '&' : '?', enc_domain ? enc_domain : "",
-             enc_callback ? enc_callback : "");
+             enc_path ? enc_path : "", enc_callback ? enc_callback : "");
     free(enc_domain);
+    free(enc_path);
     free(enc_callback);
     http_response_redirect(resp, location);
 }
@@ -90,8 +93,8 @@ static int check_auth(const proxy_t *px, const domain_rule_t *dom, const url_rul
     char token[MAX_TOKEN];
     int from_bearer = 0;
     if (extract_session_token(req, token, sizeof(token), &from_bearer)) {
-        token_status_t st = auth_token_verify(px->session_secret, token, dom->name, rc->now,
-                                              NULL, 0, NULL);
+        token_status_t st = auth_token_verify_scope(px->session_secret, token, dom->name,
+                                                    rule->id, rc->now, NULL, 0, NULL);
         if (st == TOKEN_OK)
             return 0;
         if (from_bearer) {
