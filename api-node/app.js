@@ -42,10 +42,22 @@ app.post('/api/domains', requireAuth, express.json(), async (req, res) => {
     return res.status(400).json({ error: 'El límite de caché debe ser un número entero de bytes mayor que 0.' });
   }
 
+  let originUrl;
+  try {
+    if (typeof req.body?.originUrl !== 'string') throw new Error();
+    const origin = new URL(req.body.originUrl.trim());
+    if (!['http:', 'https:'].includes(origin.protocol) || origin.username || origin.password
+      || origin.pathname !== '/' || origin.search || origin.hash) throw new Error();
+    originUrl = origin.origin;
+  } catch {
+    return res.status(400).json({ error: 'Escribe la dirección HTTP o HTTPS del servidor de origen, sin rutas, credenciales, parámetros ni fragmentos.' });
+  }
+
   const domain = {
     ownerId: req.user.uid,
     name,
     maxCacheBytes,
+    originUrl,
     verified: false,
     verificationToken: randomUUID(),
   };

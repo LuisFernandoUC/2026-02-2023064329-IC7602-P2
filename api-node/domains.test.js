@@ -62,7 +62,7 @@ function createDomain(body, token = 'cuenta-a') {
   return fetch(`${baseUrl}/api/domains`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ originUrl: 'http://apache-apache', ...body }),
   });
 }
 
@@ -76,7 +76,7 @@ test('listar y crear dominios requieren sesión', async () => {
 test('crea un dominio pendiente para el propietario verificado', async (t) => {
   const records = mockFirebase(t);
   const response = await createDomain({
-    name: ' APACHE.LOCAL ', maxCacheBytes: 1048576,
+    name: ' APACHE.LOCAL ', maxCacheBytes: 1048576, originUrl: ' HTTP://APACHE-APACHE:80/ ',
     ownerId: 'otra-cuenta', verified: true, verificationToken: 'token-del-cliente',
   });
   assert.equal(response.status, 201);
@@ -85,10 +85,12 @@ test('crea un dominio pendiente para el propietario verificado', async (t) => {
   assert.equal(domain.ownerId, 'cuenta-a');
   assert.equal(domain.verified, false);
   assert.equal(domain.maxCacheBytes, 1048576);
+  assert.equal(domain.originUrl, 'http://apache-apache');
   assert.ok(domain.verificationToken);
   assert.notEqual(domain.verificationToken, 'token-del-cliente');
   assert.deepEqual(domain.verificationRecord, { name: '_verificacion.apache.local', value: domain.verificationToken });
   assert.equal(records.get(domain.id).ownerId, 'cuenta-a');
+  assert.equal(records.get(domain.id).originUrl, domain.originUrl);
 });
 
 test('rechaza dominios y tamaños inválidos antes de guardar', async (t) => {
@@ -111,11 +113,34 @@ test('un dominio duplicado no sobrescribe su configuración', async (t) => {
   const first = await createDomain({ name: 'apache.local', maxCacheBytes: 1048576 });
   assert.equal(first.status, 201);
   const original = await first.json();
-  const duplicate = await createDomain({ name: 'APACHE.LOCAL', maxCacheBytes: 2097152 });
+  const duplicate = await createDomain({ name: 'APACHE.LOCAL', maxCacheBytes: 2097152, originUrl: 'http://otro-servidor' });
   assert.equal(duplicate.status, 409);
   assert.equal(records.size, 1);
   assert.equal(records.get(original.id).maxCacheBytes, 1048576);
   assert.equal(records.get(original.id).verificationToken, original.verificationToken);
+  assert.equal(records.get(original.id).originUrl, original.originUrl);
+});
+
+test('rechaza un origen ausente o incompatible con la dirección base de la caché', async (t) => {
+  const records = mockFirebase(t);
+  for (const originUrl of [undefined, '', null, 42, 'apache-apache', 'ftp://servidor', 'javascript:alert(1)',
+    'http://usuario:clave@servidor', 'http://servidor/archivos', 'http://servidor?dato=1', 'http://servidor#seccion']) {
+    const response = await createDomain({ name: 'apache.local', maxCacheBytes: 1048576, originUrl });
+    assert.equal(response.status, 400);
+  }
+  assert.equal(records.size, 0);
+});
+
+test('acepta orígenes HTTP y HTTPS con puerto y los conserva al listar', async (t) => {
+  mockFirebase(t);
+  for (const [name, originUrl] of [['apache.local', 'http://apache-apache:8080'], ['seguro.local', 'https://example.com:8443']]) {
+    const response = await createDomain({ name, maxCacheBytes: 1048576, originUrl });
+    assert.equal(response.status, 201);
+    assert.equal((await response.json()).originUrl, originUrl);
+  }
+  const response = await fetch(`${baseUrl}/api/domains`, { headers: { Authorization: 'Bearer cuenta-a' } });
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).map((domain) => domain.originUrl), ['http://apache-apache:8080', 'https://example.com:8443']);
 });
 
 test('el listado no permite consultar dominios de otra cuenta', async (t) => {

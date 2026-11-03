@@ -24,7 +24,7 @@ Campos propuestos. Tamaños en bytes y TTL en segundos.
 | Dato | Campos mínimos | Uso |
 | --- | --- | --- |
 | Cuenta del panel | `id` (UID de Firebase Authentication), `email` | Propietario de los dominios. |
-| Dominio | `id`, `ownerId`, `name`, `maxCacheBytes`, `verified`, `verificationToken` | Dominio, propietario, límite de caché y verificación TXT. |
+| Dominio | `id`, `ownerId`, `name`, `originUrl`, `maxCacheBytes`, `verified`, `verificationToken` | Dominio, propietario, servidor de origen, límite de caché y verificación TXT. |
 | Regla de URL | `id`, `domainId`, `pathPattern`, `maxCacheBytes`, `fileTypes`, `authMode` | Configuración de una ruta, con soporte de comodines. |
 | Usuario de un recurso | `id`, `ruleId`, `username`, `passwordHash` | Acceso a URLs con usuario y contraseña. |
 | API key | `id`, `ruleId`, `keyHash` | Acceso a URLs con `x-api-key`. |
@@ -66,7 +66,7 @@ El registro, inicio y cierre de sesión del panel usan Firebase Authentication c
 | Método | Ruta | Operación |
 | --- | --- | --- |
 | GET | `/api/domains` | Listar los dominios de la cuenta. Implementada. |
-| POST | `/api/domains` | Agregar un dominio, su límite de caché y generar el valor TXT. Implementada. |
+| POST | `/api/domains` | Agregar un dominio, su servidor de origen y límite de caché, y generar el valor TXT. Implementada. |
 | DELETE | `/api/domains/:domainId` | Eliminar el dominio, sus reglas, usuarios, claves y sesiones. |
 | POST | `/api/domains/:domainId/verify` | Consultar el TXT y verificar la propiedad. |
 | GET | `/api/domains/:domainId/rules` | Listar las reglas de URL. |
@@ -82,6 +82,8 @@ El registro, inicio y cierre de sesión del panel usan Firebase Authentication c
 | DELETE | `/api/rules/:ruleId/keys/:keyId` | Eliminar una API key. |
 
 Al agregar un dominio, la API devuelve el registro `_verificacion.<dominio>` con un token generado en el servidor. Se guarda con `verified: false`. La consulta del TXT para verificar la propiedad sigue pendiente. Solo los dominios verificados se enviarán a las cachés.
+
+`originUrl` es obligatorio al agregar un dominio. Debe ser una dirección HTTP o HTTPS, con puerto opcional, sin rutas, credenciales, parámetros ni fragmentos. Se guarda su dirección base, por ejemplo `http://apache-apache:8080`, para que la caché añada la ruta del recurso. Los dominios anteriores no se modifican automáticamente.
 
 El listado filtra por el UID de la sesión y el registro toma ese mismo UID como `ownerId`. El cliente no puede elegir otro propietario ni marcar el dominio como verificado. El mismo dominio no puede repetirse en una cuenta.
 

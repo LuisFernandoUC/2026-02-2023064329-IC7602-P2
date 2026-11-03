@@ -94,7 +94,7 @@ flowchart LR
 | IP de cada caché | Service `<release>-zonal-cache-<zona>` | DNS: `lookup` del Service `<zonalCache.release>-zonal-cache-<zona>` | Coincide (release `zonal-cache`) |
 | Puerto que ve el cliente | Service 80 (HTTP) y 443 (HTTPS) | DNS responde solo con la IP (registro A) | Coincide |
 | Dominios atendidos | `domains[].name` de la configuración | DNS: lista fija `apache.p2.local`, `*.cdn.p2.local` | Hay que mantenerlas iguales (sección 7) |
-| Servidor de origen | `domains[].origin` | Charts: `apache-apache:80` y `rest-api-java-rest-api-java:8080`. API: el dominio **no tiene campo de origen** | Falta en API y UI |
+| Servidor de origen | `domains[].origin` o `originUrl` | El formulario pide `originUrl` y la API lo valida y guarda al agregar el dominio | Implementado en API y UI; los dominios anteriores pueden no tenerlo |
 | Configuración | `GET ZC_CONFIG_URL` con todos los dominios | API: `GET /api/cache/config` entrega los dominios verificados y sus reglas | Implementado en API; falta conectar el despliegue |
 | Autenticar la caché ante el API | `Authorization: Bearer <ZC_CONFIG_TOKEN>` | API: compara el token con `CACHE_API_TOKEN` | Implementado; falta configurar el mismo valor en ambos |
 | API keys | SHA-256 en `apiKeys[]` (valida localmente) | API: entrega solo `keyHash` a la caché autenticada | Contrato ajustado; falta crear las claves desde la UI |
@@ -231,7 +231,7 @@ El DNS Interceptor se instala **después** de la caché, porque busca la IP de l
 
 ## 6. Cambios necesarios en el API Node.js y la UI
 
-El endpoint `GET /api/cache/config` ya está implementado en `api-node/cache.js`. Los demás cambios de esta sección siguen como propuestas pendientes.
+El endpoint `GET /api/cache/config` y el campo `originUrl` al registrar dominios ya están implementados. Los demás cambios de esta sección siguen como propuestas pendientes.
 
 ### 6.1 Variables de entorno nuevas del API
 
@@ -248,13 +248,13 @@ Ambos secretos se generan una vez, por ejemplo con `openssl rand -hex 32`. Luego
 Esta estructura sigue la tabla de la sección 2 de [API-Node.md](Contratos/API-Node.md):
 
 ```text
-domains/{domainId}              ownerId, name, maxCacheBytes, verified, verificationToken, originUrl (nuevo)
+domains/{domainId}              ownerId, name, maxCacheBytes, verified, verificationToken, originUrl
   rules/{ruleId}                pathPattern, maxCacheBytes, authMode, fileTypes[], replacementPolicy (opcional)
     keys/{keyId}                keyHash = sha256(apiKey) en hexadecimal
     users/{userId}              username, passwordHash = "scrypt$<salt>$<hash>"
 ```
 
-- **`originUrl`** (nuevo) es la URL del servidor de origen que la caché consulta en un MISS, por ejemplo `http://apache-apache` dentro del cluster. Hay que pedirla al agregar el dominio en `AddDomainDialog.jsx` y validarla en `POST /api/domains`. Sin este campo la caché pediría `http://<Host>`, y eso no resuelve dentro del cluster.
+- **`originUrl`** es la dirección base del servidor que la caché consulta en un MISS, por ejemplo `http://apache-apache` dentro del cluster. El formulario la pide al agregar el dominio y `POST /api/domains` valida que use HTTP o HTTPS, sin rutas ni credenciales. Se guarda en Firestore y se entrega en `/api/cache/config`. Los dominios anteriores no se modifican automáticamente.
 - **Hashes hacia la caché:** el contrato ya permite entregar los hashes SHA-256 de las API keys para validar `x-api-key` sin llamar al API en cada petición.
   - Se envía solo `keyHash`, por el endpoint autenticado con `CACHE_API_TOKEN`.
   - Los `passwordHash` nunca salen del API.
@@ -427,7 +427,7 @@ Si faltan `domain` o `callback`, la página debe mostrar "Abre el recurso desde 
 - Mover el selector de política fuera de la tabla de tipos de archivo y guardarlo como `replacementPolicy` de la regla (recomendado).
 - Dejarlo por tipo de archivo, sabiendo que la caché usa la del primer tipo.
 
-**[AddDomainDialog.jsx](../ui/src/components/AddDomainDialog.jsx).** Agregar el campo "Servidor de origen" (`originUrl`).
+**[AddDomainDialog.jsx](../ui/src/components/AddDomainDialog.jsx).** El campo "Servidor de origen" (`originUrl`) ya se envía a la API. El detalle del dominio muestra el valor guardado.
 
 ## 7. DNS Interceptor
 
@@ -489,7 +489,6 @@ helm upgrade --install zonal-cache deploy/helm/zonal-cache \
 | Pendiente | Responsable |
 | --- | --- |
 | Implementar `POST /api/cache/sessions` (sección 6.3) | Nicole |
-| Agregar `originUrl` al dominio (API y UI) | Nicole |
 | Conectar `#/acceso-recurso` al API y corregir la ruta con parámetros en `App.jsx` | Nicole |
 | Definir si la política de reemplazo es por regla o por tipo de archivo | Nicole y Fabricio |
 | Generar `CACHE_API_TOKEN` y `CACHE_SESSION_SECRET` y configurarlos en Vercel y en el chart | Fabricio y Nicole |
