@@ -10,13 +10,15 @@
 services:
   certs:
     image: alpine:3.20
+    # Todas las líneas con la misma sangría: en un bloque ">" de YAML, las líneas
+    # con más sangría conservan el salto de línea y sh las ejecuta como comandos aparte.
     command: >
       sh -c "apk add --no-cache openssl >/dev/null &&
-             [ -f /certs/tls.crt ] ||
-             (openssl req -x509 -newkey rsa:2048 -nodes -days 365
-               -subj '/CN=zonal-cache.local'
-               -keyout /certs/tls.key -out /certs/tls.crt &&
-              chmod 644 /certs/tls.key /certs/tls.crt)"
+      [ -f /certs/tls.crt ] ||
+      (openssl req -x509 -newkey rsa:2048 -nodes -days 365
+      -subj '/CN=zonal-cache.local'
+      -keyout /certs/tls.key -out /certs/tls.crt &&
+      chmod 644 /certs/tls.key /certs/tls.crt)"
     volumes:
       - ./dev/certs:/certs
 
