@@ -29,6 +29,7 @@ export default function DomainDetail({ domain }) {
               {domain.verified ? 'Verificado' : 'Pendiente'}
             </span>
           </div>
+          <p className="mt-3 text-sm text-muted">Servidor de origen: <span className="break-all font-mono text-ink">{domain.originUrl || 'Sin configurar'}</span></p>
           {!domain.verified && <a href={`#/dominios/${domain.id}/verificar`} className="text-link mt-3 inline-block text-sm">Verificar dominio</a>}
         </div>
         <dl className="rounded-lg bg-soft px-5 py-4">

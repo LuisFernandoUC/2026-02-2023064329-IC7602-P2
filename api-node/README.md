@@ -70,13 +70,17 @@ El listado y el registro de dominios usan `requireAuth`, que responde `401` si f
 
 `GET /api/domains` devuelve una lista con los dominios de la cuenta autenticada. Si no tiene dominios, devuelve `[]`.
 
-`POST /api/domains` recibe el nombre y el límite de caché en bytes:
+`POST /api/domains` recibe el nombre, el servidor de origen y el límite de caché en bytes:
 
 ```json
-{"name":"apache.local","maxCacheBytes":1048576}
+{"name":"apache.local","originUrl":"http://apache-apache","maxCacheBytes":1048576}
 ```
 
 El nombre se guarda en minúsculas. El propietario se obtiene de la sesión y el dominio queda sin verificar, con un token para el registro TXT `_verificacion.<dominio>`. La respuesta incluye el dominio y los datos de ese registro.
+
+`originUrl` es obligatorio y acepta HTTP o HTTPS con puerto opcional. No admite rutas, credenciales, parámetros ni fragmentos. La API guarda la dirección base sin la barra final; la caché añade la ruta solicitada. Puede ser un nombre interno como `http://apache-apache` si la caché puede resolverlo. La API no intenta conectarse al origen al guardar.
+
+El listado devuelve el origen guardado. Los dominios creados antes de este campo se conservan y la UI los muestra con el origen **Sin configurar**.
 
 Responde `201` al guardar, `400` si los datos no son válidos, `409` si el dominio ya está en esa cuenta y `503` si falla Firestore. El límite debe ser un entero positivo de bytes y el nombre debe permitir formar un registro TXT de hasta 253 caracteres.
 
@@ -92,7 +96,7 @@ La respuesta no incluye propietarios, tokens TXT, usuarios, contraseñas ni hash
 
 Si no hay dominios verificados, devuelve `200` y `{ "domains": [] }`. Un token ausente o incorrecto responde `401`. Si falta `CACHE_API_TOKEN`, responde `503`.
 
-Guardar reglas y credenciales, pedir el origen en la UI y verificar el TXT siguen pendientes. Este endpoint lee los documentos existentes; todavía falta completar esos pasos y conectar el despliegue de la caché con la API.
+Guardar reglas y credenciales y verificar el TXT siguen pendientes. Este endpoint lee los documentos existentes; todavía falta completar esos pasos y conectar el despliegue de la caché con la API.
 
 Agregar `CACHE_API_TOKEN` a `.env` y usar el mismo valor como `ZC_CONFIG_TOKEN` en la caché. Se puede generar un valor con `openssl rand -hex 32`. No subirlo al repositorio ni ponerlo en variables `VITE_`.
 

@@ -37,7 +37,9 @@ Abrir `http://127.0.0.1:5173/`. **Crear cuenta** registra el correo y la contras
 
 Las pantallas del panel requieren sesión. Las solicitudes hechas con `apiRequest` envían el ID token para que la API lo verifique. El listado muestra únicamente los dominios de esa cuenta y empieza vacío.
 
-**Agregar dominio** guarda el nombre y el límite de caché. La UI muestra MB y la API recibe bytes (1 MB = 1 048 576 bytes). Al guardarlo aparece como pendiente y se pueden consultar los datos de su registro TXT. La verificación y la eliminación todavía no están disponibles.
+**Agregar dominio** guarda el nombre, el servidor de origen y el límite de caché. El origen debe ser una dirección HTTP o HTTPS, con puerto opcional y sin rutas, como `http://apache-apache` para el Apache del cluster. La caché debe poder acceder a ese servidor. La UI muestra MB y la API recibe bytes (1 MB = 1 048 576 bytes). Al guardarlo aparece como pendiente y se pueden consultar los datos de su registro TXT. La verificación y la eliminación todavía no están disponibles.
+
+El detalle del dominio muestra su servidor de origen. Si fue creado antes de agregar este campo, muestra **Sin configurar**; no se cambia su configuración automáticamente.
 
 `#/acceso-recurso` es el formulario para usuarios de recursos y permanece público. Todavía falta conectarlo con la API de acceso a las cachés; no usa la cuenta del panel.
 
@@ -49,7 +51,7 @@ npm run build
 
 Para probar el flujo completo, crear una cuenta desde la UI, recargar la página, cerrar sesión e ingresar de nuevo. Sin sesión, abrir `#/dominios` debe volver a **Iniciar sesión**. Contraseñas distintas en el registro deben mostrar un mensaje.
 
-Para probar dominios, agregar `apache.local` con un límite de 1 MB y recargar la página. Debe seguir en la lista como pendiente. Intentar agregarlo otra vez debe mostrar un error. Este nombre se usa para las pruebas locales del grupo; no confirma propiedad mediante DNS público.
+Para probar dominios, agregar `apache.local` con origen `http://apache-apache` y un límite de 1 MB. Abrirlo y recargar: debe conservar el origen y seguir pendiente. Intentar agregarlo otra vez debe mostrar un error. Si ya existe, no se debe volver a crear. Este nombre se usa para las pruebas locales del grupo; no confirma propiedad mediante DNS público.
 
 ## Referencias
 
