@@ -76,7 +76,7 @@ export default function Domains({ user, verificationId, domainId, ruleForm }) {
         ) : ruleForm ? (
           <RuleForm key={`${ruleForm.domainId}/${ruleForm.ruleId ?? 'new'}`} domain={domains.find((domain) => domain.id === ruleForm.domainId)} ruleId={ruleForm.ruleId} />
         ) : domainId ? (
-          <DomainDetail domain={domains.find((domain) => domain.id === domainId)} />
+          <DomainDetail key={domainId} domain={domains.find((domain) => domain.id === domainId)} />
         ) : (
           <>
             <div className="flex flex-wrap items-center justify-between gap-5 border-b border-line pb-7">
