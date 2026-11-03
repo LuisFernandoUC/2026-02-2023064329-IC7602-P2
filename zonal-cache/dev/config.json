@@ -1,0 +1,69 @@
+{
+  "domains": [
+    {
+      "name": "apache.local",
+      "origin": "http://origin:80",
+      "maxCacheSize": 1048576,
+      "urls": [
+        {
+          "pattern": "/*",
+          "cacheSize": 524288,
+          "policy": "LRU",
+          "auth": "none",
+          "fileTypes": [
+            { "extension": "html", "ttl": 60 },
+            { "extension": "css", "ttl": 300 },
+            { "extension": "png", "ttl": 3600 }
+          ]
+        },
+        {
+          "pattern": "/privado/*",
+          "cacheSize": 262144,
+          "policy": "FIFO",
+          "auth": "user_password",
+          "fileTypes": [{ "extension": "*", "ttl": 60 }]
+        },
+        {
+          "pattern": "/api/*",
+          "cacheSize": 262144,
+          "policy": "LFU",
+          "auth": "api_key",
+          "fileTypes": [{ "extension": "*", "ttl": 30 }],
+          "apiKeys": ["e2bc022cb9c8b0dfd4db95058c79f8422bdecec430dd3907c945509a6c0926bc"]
+        }
+      ]
+    },
+    {
+      "name": "example.com",
+      "origin": "http://example.com",
+      "maxCacheSize": 1048576,
+      "urls": [
+        {
+          "pattern": "/*",
+          "cacheSize": 1048576,
+          "policy": "MRU",
+          "auth": "none",
+          "fileTypes": [{ "extension": "html", "ttl": 120 }]
+        }
+      ]
+    },
+    {
+      "name": "www.wikipedia.org",
+      "origin": "https://www.wikipedia.org",
+      "maxCacheSize": 2097152,
+      "urls": [
+        {
+          "pattern": "/*",
+          "cacheSize": 2097152,
+          "policy": "RANDOM",
+          "auth": "none",
+          "fileTypes": [
+            { "extension": "html", "ttl": 120 },
+            { "extension": "png", "ttl": 3600 },
+            { "extension": "svg", "ttl": 3600 }
+          ]
+        }
+      ]
+    }
+  ]
+}
