@@ -12,3 +12,11 @@ data:
   DI_UPSTREAM_DNS: {{ .Values.upstream.dns | quote }}
   DI_UPSTREAM_TIMEOUT_MS: {{ .Values.upstream.timeoutMs | quote }}
   DI_TTL: {{ .Values.ttl | quote }}
+  DI_TCP: {{ ternary "1" "0" .Values.tcp.enabled | quote }}
+  DI_HEALTH_PORT: {{ .Values.health.port | quote }}
+  DI_HEALTH_INTERVAL_SECONDS: {{ .Values.health.intervalSeconds | quote }}
+  DI_HEALTH_TIMEOUT_MS: {{ .Values.health.timeoutMs | quote }}
+  {{- if .Values.domainsSync.url }}
+  DI_DOMAINS_URL: {{ .Values.domainsSync.url | quote }}
+  DI_DOMAINS_REFRESH_SECONDS: {{ .Values.domainsSync.refreshSeconds | quote }}
+  {{- end }}

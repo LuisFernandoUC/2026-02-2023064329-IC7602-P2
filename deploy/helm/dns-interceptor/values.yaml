@@ -15,9 +15,36 @@ service:
   port: 53
   # Solo aplica con type NodePort.
   nodePort: 30053
+  # Conserva la IP real del cliente (externalTrafficPolicy: Local) para que el país se detecte bien.
+  # Solo aplica con NodePort y LoadBalancer.
+  preserveClientIP: true
 
 # Puerto UDP interno del contenedor (DI_PORT). Es mayor que 1024 para correr sin root.
 containerPort: 5353
+
+# Además de UDP atiende DNS sobre TCP (RFC 7766) en el mismo puerto: lo usan los clientes cuando
+# una respuesta no cabe en un datagrama.
+tcp:
+  enabled: true
+
+# Dominios dinámicos: el interceptor consulta este endpoint del API Node.js y atiende, además de
+# `domains`, los dominios verificados que devuelva. Si el API falla se conserva la última lista.
+# Con url vacía solo se usa `domains`.
+domainsSync:
+  # Ejemplo: https://<api>.vercel.app/api/cache/config
+  url: ""
+  refreshSeconds: 30
+  # Token Bearer del API (el mismo que usa la caché zonal). Se guarda en un Secret.
+  token: ""
+  # Alternativa: nombre de un Secret ya existente con la clave `domains-token`.
+  existingSecret: ""
+
+# Respaldo de zonas: cada intervalSeconds se prueba una conexión TCP a cada caché zonal. Si la zona
+# del país no responde se usa la zona por defecto y, si tampoco, otra zona sana. 0 = sin sondeo.
+health:
+  port: 80
+  intervalSeconds: 5
+  timeoutMs: 1000
 
 # Dominios que el interceptor redirige a la caché zonal. Admite comodín "*.dominio".
 # Cualquier otro dominio se reenvía al DNS externo.
