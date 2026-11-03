@@ -50,7 +50,7 @@ El sistema intercepta peticiones DNS de dominios específicos, las redirige a un
 | Zonal Cache        | GNU C                        | Kubernetes (Helm)    |
 | Rest API           | Java                         | Kubernetes (Helm)    |
 | Apache Server      | Apache HTTP Server           | Kubernetes (Helm)    |
-| REST API (Node.js) | Node.js + Firebase/Firestore | Vercel               |
+| REST API (Node.js) | Node.js + Express + Firebase/Firestore | Vercel               |
 | UI                 | React + Vite + Tailwind CSS  | Vercel               |
 
 ## 2. Integrantes
@@ -112,7 +112,7 @@ Zonal Cache ──configuración / autenticación──▶ REST API Node.js ─�
 | Helm                           | _TODO_  | Instalar los charts                      |
 | GCC / Make                     | _TODO_  | Compilar DNS Interceptor y Zonal Cache   |
 | JDK + Maven/Gradle             | _TODO_  | Compilar la Rest API Java                |
-| Node.js                        | _TODO_  | API Node.js y UI                         |
+| Node.js                        | 24.x | API Node.js y UI                         |
 | `nslookup`, `curl` / Postman   | —       | Probar el sistema                        |
 
 ## 6. Cómo ejecutar el proyecto
@@ -157,9 +157,13 @@ Toda configuración se inyecta por variables de entorno. Documentar aquí cada u
 | Componente      | Variable | Descripción | Ejemplo / valor por defecto |
 | --------------- | -------- | ----------- | --------------------------- |
 | DNS Interceptor | _TODO_   |             |                             |
-| Zonal Cache     | _TODO_   |             |                             |
+| Zonal Cache     | `ZC_*`   | Ver la tabla completa en [zonal-cache/README.md](zonal-cache/README.md#3-variables-de-entorno) | — |
 | Rest API Java   | _TODO_   |             |                             |
-| API Node.js     | _TODO_   |             |                             |
+| API Node.js     | `HOST`   | Dirección del servidor local | `127.0.0.1` |
+| API Node.js     | `PORT`   | Puerto del servidor local | `3000` |
+| API Node.js     | `FIREBASE_PROJECT_ID` | ID del proyecto de Firebase | `project_id` de la cuenta de servicio |
+| API Node.js     | `FIREBASE_CLIENT_EMAIL` | Correo de la cuenta de servicio | `client_email` |
+| API Node.js     | `FIREBASE_PRIVATE_KEY` | Clave privada de la cuenta de servicio | `private_key`, entre comillas dobles |
 | UI              | _TODO_   |             |                             |
 
 ## 8. Documentación por componente
@@ -172,7 +176,7 @@ La documentación debe cubrir **todos** los componentes implementados, instalado
 
 ### 8.2 Zonal Cache
 
-<!-- Servidor HTTP, caché en disco y límite por dominio, algoritmos de reemplazo (LRU, LFU, FIFO, MRU, Random), configuración desde Firebase, autenticación (x-api-key y usuario/contraseña con sesión), SSL termination, despliegue (Helm). -->
+Documentación completa en [zonal-cache/README.md](zonal-cache/README.md): flujo de una petición, caché en disco con límites por dominio y por URL, algoritmos de reemplazo (LRU, LFU, FIFO, MRU, Random), autenticación (`x-api-key` y usuario/contraseña con sesión JWT), SSL termination, contrato con el API Node.js, pruebas unitarias y despliegue con Helm ([deploy/helm/zonal-cache](deploy/helm/zonal-cache)).
 
 ### 8.3 Rest API (Java)
 
@@ -184,11 +188,17 @@ La documentación debe cubrir **todos** los componentes implementados, instalado
 
 ### 8.5 REST API Node.js
 
+La API incluye `GET /api/health`, el listado y el registro de dominios en `/api/domains`. Estas dos últimas rutas verifican la sesión con Firebase Authentication y usan el UID de la cuenta como propietario. Ver [cómo ejecutarla y probarla](api-node/README.md).
+
+La conexión a Firestore se configura con variables de entorno. El comando `npm run check:firestore`, desde `api-node/`, permite comprobar el acceso. Ver [configuración de Firestore](api-node/README.md#configurar-firestore).
+
+Propuesta de [datos y endpoints iniciales](Docs/Contratos/API-Node.md), con los acuerdos pendientes para integrar la UI y las cachés zonales.
+
 <!-- Endpoints, mecanismo de autenticación y autorización elegido (investigado y justificado), verificación de dominios por registro TXT, deploy en Vercel. -->
 
 ### 8.6 UI
 
-<!-- Registro, administración de dominios y URLs (wildcards), tamaño de caché, tipos de archivo con TTL y política, mecanismo de autenticación, formulario de login para las cachés, cierre de sesión. Deploy en Vercel. Herramienta de IA generativa utilizada. -->
+La UI usa React, Vite y Tailwind CSS. El registro, inicio y cierre de sesión están conectados a Firebase Authentication. El formulario y el listado de dominios usan la API y Firestore. La verificación TXT, la eliminación, las reglas y las credenciales siguen pendientes. Ver [configuración y ejecución de la UI](ui/README.md).
 
 ### 8.7 Automatización
 
@@ -209,6 +219,7 @@ Cada prueba debe incluir los pasos para reproducirla. El sistema debe probarse c
 | 7   | Autenticación con usuario y contraseña (sesión)  | _TODO_                |                    |                    |
 | 8   | Algoritmos de reemplazo (LRU, LFU, FIFO, MRU, Random) | _TODO_           |                    |                    |
 | 9   | Límite de tamaño de caché por dominio            | _TODO_                |                    |                    |
+| 10  | Conexión API Node.js con Firestore | Desde `api-node/`, configurar `.env` y ejecutar `npm run check:firestore`. | `Conexión con Firestore verificada.` | Correcto; consulta de lectura realizada. |
 
 Recomendación del enunciado: usar `nslookup` para el DNS Interceptor y Postman/`curl` para la caché zonal.
 
