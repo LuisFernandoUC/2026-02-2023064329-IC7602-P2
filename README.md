@@ -192,6 +192,8 @@ La API incluye `GET /api/health`, el listado y el registro de dominios en `/api/
 
 La conexión a Firestore se configura con variables de entorno. El comando `npm run check:firestore`, desde `api-node/`, permite comprobar el acceso. Ver [configuración de Firestore](api-node/README.md#configurar-firestore).
 
+`GET /api/cache/config` entrega a las cachés autenticadas los dominios verificados, sus reglas y los hashes de API keys. Requiere `CACHE_API_TOKEN`, que debe coincidir con `ZC_CONFIG_TOKEN` en la caché. El guardado de reglas y credenciales, la verificación TXT y la conexión con el despliegue siguen pendientes.
+
 Propuesta de [datos y endpoints iniciales](Docs/Contratos/API-Node.md), con los acuerdos pendientes para integrar la UI y las cachés zonales.
 
 <!-- Endpoints, mecanismo de autenticación y autorización elegido (investigado y justificado), verificación de dominios por registro TXT, deploy en Vercel. -->

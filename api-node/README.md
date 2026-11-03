@@ -1,6 +1,6 @@
 # API Node.js
 
-API con Express, registro y listado de dominios en Firestore y autenticación con Firebase Authentication.
+API con Express, registro y listado de dominios en Firestore, autenticación con Firebase Authentication y consulta de configuración para las cachés.
 
 ## Ejecutar
 
@@ -25,6 +25,7 @@ npm run dev
 | `FIREBASE_PROJECT_ID` | ID del proyecto de Firebase. | Valor `project_id` de la cuenta de servicio. |
 | `FIREBASE_CLIENT_EMAIL` | Correo de la cuenta de servicio. | Valor `client_email`. |
 | `FIREBASE_PRIVATE_KEY` | Clave privada de la cuenta de servicio. | Valor `private_key`, entre comillas dobles. |
+| `CACHE_API_TOKEN` | Token para consultar `/api/cache/config`. | Mismo valor que `ZC_CONFIG_TOKEN` en la caché. |
 
 `HOST` y `PORT` son obligatorias para el servidor local. Las variables de Firebase se usan para Firestore y para validar sesiones. `/api/health` puede funcionar sin ellas. `UI_ORIGIN` debe coincidir con la dirección de la UI, incluido el puerto.
 
@@ -81,6 +82,20 @@ Responde `201` al guardar, `400` si los datos no son válidos, `409` si el domin
 
 La eliminación de dominios, la consulta del TXT, las reglas y las credenciales siguen pendientes. `apache.local` sirve para probar el guardado local; verificar la propiedad requiere poder modificar el DNS que consulta la API.
 
+## Configuración para las cachés
+
+`GET /api/cache/config` requiere `Authorization: Bearer <CACHE_API_TOKEN>`. Este token es propio de la caché; no usa la sesión de una cuenta del panel ni la API key de un cliente.
+
+Devuelve `{ "domains": [...] }` con todos los dominios que tienen `verified: true`. Lee las reglas en `domains/{domainId}/rules` y, para las reglas con `authMode: "api-key"`, sus hashes en `rules/{ruleId}/keys`. Entrega los nombres de campos que ya acepta la caché: `originUrl`, `maxCacheBytes`, `pathPattern`, `authMode`, `fileTypes` y `apiKeys`.
+
+La respuesta no incluye propietarios, tokens TXT, usuarios, contraseñas ni hashes de contraseñas. Usa `Cache-Control: no-store` y vuelve a consultar Firestore en cada solicitud. Si falla alguna lectura, responde `503` sin entregar datos parciales.
+
+Si no hay dominios verificados, devuelve `200` y `{ "domains": [] }`. Un token ausente o incorrecto responde `401`. Si falta `CACHE_API_TOKEN`, responde `503`.
+
+Guardar reglas y credenciales, pedir el origen en la UI y verificar el TXT siguen pendientes. Este endpoint lee los documentos existentes; todavía falta completar esos pasos y conectar el despliegue de la caché con la API.
+
+Agregar `CACHE_API_TOKEN` a `.env` y usar el mismo valor como `ZC_CONFIG_TOKEN` en la caché. Se puede generar un valor con `openssl rand -hex 32`. No subirlo al repositorio ni ponerlo en variables `VITE_`.
+
 ## Probar
 
 Con el servidor activo, abrir otra terminal:
@@ -97,13 +112,21 @@ Debe responder con HTTP `200` y este JSON:
 
 Una ruta inexistente responde con HTTP `404` y `{"error":"Ruta no encontrada"}`. Si se cambia `HOST` o `PORT`, ajustar la dirección del comando.
 
-Para probar la autenticación y los dominios:
+Para probar la autenticación, los dominios y la configuración de las cachés:
 
 ```bash
 npm test
 ```
 
-Las pruebas cubren autenticación, validaciones, duplicados, separación de cuentas y errores del servicio. Usan credenciales locales y documentos en memoria. No crean cuentas ni modifican Firebase.
+Las pruebas cubren autenticación, validaciones, duplicados, separación de cuentas y errores del servicio. Las de configuración verifican el token de caché, el filtro de dominios verificados, los datos entregados, las claves revocadas y los fallos de Firestore. Usan credenciales locales y documentos en memoria. No crean cuentas ni modifican Firebase.
+
+Con la API en ejecución, consultar el endpoint usando el valor de `CACHE_API_TOKEN` de `.env`:
+
+```bash
+curl -i -H 'Authorization: Bearer <CACHE_API_TOKEN>' http://127.0.0.1:3000/api/cache/config
+```
+
+Reemplazar `<CACHE_API_TOKEN>` por el valor local. Debe responder `200` con la lista de dominios verificados, o una lista vacía si aún no hay ninguno. Repetir sin el encabezado debe responder `401`.
 
 ## Referencias
 
@@ -116,4 +139,6 @@ Las pruebas cubren autenticación, validaciones, duplicados, separación de cuen
 - [Firestore desde un servidor](https://firebase.google.com/docs/firestore/quickstart-server): inicialización del cliente y acceso a la base de datos.
 - [Crear documentos](https://docs.cloud.google.com/nodejs/docs/reference/firestore/latest/firestore/documentreference#create_data_): creación de documentos sin sobrescribir los existentes.
 - [Consultas de Firestore](https://firebase.google.com/docs/firestore/query-data/queries): filtrado de dominios por propietario.
+- [Lectura de datos de Firestore](https://firebase.google.com/docs/firestore/query-data/get-data): lectura de reglas y claves en subcolecciones.
+- [Comparación de tokens en Node.js](https://nodejs.org/docs/latest-v24.x/api/crypto.html#cryptotimingsafeequala-b): uso de `timingSafeEqual`.
 - [Subir claves de cuentas de servicio](https://docs.cloud.google.com/iam/docs/keys-upload): registro del certificado público en Google Cloud.

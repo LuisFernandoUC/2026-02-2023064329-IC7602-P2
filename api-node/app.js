@@ -3,6 +3,7 @@ import cors from 'cors';
 import { randomUUID } from 'node:crypto';
 import { requireAuth } from './auth.js';
 import { getDb } from './firestore.js';
+import cacheRouter from './cache.js';
 
 const app = express();
 
@@ -59,6 +60,8 @@ app.post('/api/domains', requireAuth, express.json(), async (req, res) => {
     res.status(503).json({ error: 'No se pudo guardar el dominio. Intenta de nuevo.' });
   }
 });
+
+app.use('/api/cache', cacheRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Ruta no encontrada' });

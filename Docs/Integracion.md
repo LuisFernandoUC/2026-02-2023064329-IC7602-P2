@@ -95,9 +95,9 @@ flowchart LR
 | Puerto que ve el cliente | Service 80 (HTTP) y 443 (HTTPS) | DNS responde solo con la IP (registro A) | Coincide |
 | Dominios atendidos | `domains[].name` de la configuración | DNS: lista fija `apache.p2.local`, `*.cdn.p2.local` | Hay que mantenerlas iguales (sección 7) |
 | Servidor de origen | `domains[].origin` | Charts: `apache-apache:80` y `rest-api-java-rest-api-java:8080`. API: el dominio **no tiene campo de origen** | Falta en API y UI |
-| Configuración | `GET ZC_CONFIG_URL` con todos los dominios | API: propuesta `GET /api/cache/config?domain=`; no está implementada | Falta en API |
-| Autenticar la caché ante el API | `Authorization: Bearer <ZC_CONFIG_TOKEN>` | API: "falta definir" | Se propone en la sección 6.1 |
-| API keys | SHA-256 en `apiKeys[]` (valida localmente) | API: guarda `keyHash`, pero dice que los hashes no se envían a las cachés; propone `POST /api/cache/authorize` | Hay que cambiar el contrato (sección 6.2) |
+| Configuración | `GET ZC_CONFIG_URL` con todos los dominios | API: `GET /api/cache/config` entrega los dominios verificados y sus reglas | Implementado en API; falta conectar el despliegue |
+| Autenticar la caché ante el API | `Authorization: Bearer <ZC_CONFIG_TOKEN>` | API: compara el token con `CACHE_API_TOKEN` | Implementado; falta configurar el mismo valor en ambos |
+| API keys | SHA-256 en `apiKeys[]` (valida localmente) | API: entrega solo `keyHash` a la caché autenticada | Contrato ajustado; falta crear las claves desde la UI |
 | Formato de reglas | `pattern`, `cacheSize`, `auth`, `fileTypes[].ttl` | API: `pathPattern`, `maxCacheBytes`, `authMode`, `ttlSeconds` | La caché acepta ambos nombres |
 | Política de reemplazo | Una por regla | UI: una por tipo de archivo | La caché usa `replacementPolicy` de la regla o la del primer tipo |
 | Login de recursos | `ZC_LOGIN_URL?domain&path&callback` → JWT HS256 | UI: `#/acceso-recurso` con datos fijos de ejemplo. API: propone `POST /api/cache/sessions` | Falta en UI y API (secciones 6.3 y 6.4) |
@@ -231,7 +231,7 @@ El DNS Interceptor se instala **después** de la caché, porque busca la IP de l
 
 ## 6. Cambios necesarios en el API Node.js y la UI
 
-Son propuestas para revisar con Nicole. No se modificaron sus archivos.
+El endpoint `GET /api/cache/config` ya está implementado en `api-node/cache.js`. Los demás cambios de esta sección siguen como propuestas pendientes.
 
 ### 6.1 Variables de entorno nuevas del API
 
@@ -255,12 +255,14 @@ domains/{domainId}              ownerId, name, maxCacheBytes, verified, verifica
 ```
 
 - **`originUrl`** (nuevo) es la URL del servidor de origen que la caché consulta en un MISS, por ejemplo `http://apache-apache` dentro del cluster. Hay que pedirla al agregar el dominio en `AddDomainDialog.jsx` y validarla en `POST /api/domains`. Sin este campo la caché pediría `http://<Host>`, y eso no resuelve dentro del cluster.
-- **Hashes hacia la caché:** el contrato dice que los hashes no se envían a las cachés. Sin embargo, la caché necesita el SHA-256 de las API keys para validar `x-api-key` sin llamar al API en cada petición. Llamar al API en cada petición sumaría la latencia de Vercel a cada HIT y la caché dejaría de funcionar si el API cae.
-  - Se propone enviar solo `keyHash`, por el endpoint autenticado con `CACHE_API_TOKEN`.
+- **Hashes hacia la caché:** el contrato ya permite entregar los hashes SHA-256 de las API keys para validar `x-api-key` sin llamar al API en cada petición.
+  - Se envía solo `keyHash`, por el endpoint autenticado con `CACHE_API_TOKEN`.
   - Los `passwordHash` nunca salen del API.
 - **Unicidad:** el id del documento es `<uid>_<dominio>`, así que dos cuentas pueden registrar el mismo dominio. Solo una debería quedar con `verified: true`.
 
-### 6.3 Endpoints para las cachés (`api-node/cache.js`, propuesta)
+### 6.3 Endpoints para las cachés
+
+La consulta de configuración está implementada en `api-node/cache.js`. El siguiente ejemplo también incluye el login de recursos, que todavía no está implementado.
 
 ```js
 import express from 'express';
@@ -486,8 +488,7 @@ helm upgrade --install zonal-cache deploy/helm/zonal-cache \
 
 | Pendiente | Responsable |
 | --- | --- |
-| Implementar `GET /api/cache/config` y `POST /api/cache/sessions` (sección 6.3) | Nicole |
-| Aceptar en el contrato que `keyHash` se envíe a las cachés por el endpoint autenticado | Nicole y Fabricio |
+| Implementar `POST /api/cache/sessions` (sección 6.3) | Nicole |
 | Agregar `originUrl` al dominio (API y UI) | Nicole |
 | Conectar `#/acceso-recurso` al API y corregir la ruta con parámetros en `App.jsx` | Nicole |
 | Definir si la política de reemplazo es por regla o por tipo de archivo | Nicole y Fabricio |

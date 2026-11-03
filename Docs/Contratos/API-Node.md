@@ -2,7 +2,7 @@
 
 **Responsable:** Nicole Parra Valverde
 
-**Estado:** implementados `/api/health`, `GET /api/domains` y `POST /api/domains`. Las demás rutas son propuestas.
+**Estado:** implementados `/api/health`, `GET /api/domains`, `POST /api/domains` y `GET /api/cache/config`. Las demás rutas son propuestas.
 
 Basado en las páginas 4 y 5 del [enunciado](../Proyectos-2026-02-IC7602-P2.pdf).
 
@@ -34,7 +34,7 @@ Campos propuestos. Tamaños en bytes y TTL en segundos.
 
 `authMode` puede ser `api-key` o `password`. Los usuarios de recursos son distintos de la cuenta del panel.
 
-Las contraseñas de usuarios de recursos, las claves y los tokens de sesión se guardarán como hashes. Los hashes no se enviarán a la UI ni a las cachés. Una API key se mostrará solo al crearla. Firebase Authentication maneja las contraseñas de las cuentas del panel.
+Las contraseñas de usuarios de recursos, las claves y los tokens de sesión se guardarán como hashes. Los hashes de contraseñas no se enviarán a la UI ni a las cachés. Los hashes SHA-256 de las API keys se entregan solo a las cachés autenticadas para que validen `x-api-key`. Una API key se mostrará solo al crearla. Firebase Authentication maneja las contraseñas de las cuentas del panel.
 
 ### Ejemplo de regla de URL
 
@@ -89,18 +89,19 @@ La comprobación del propietario se agregará al implementar las demás rutas de
 
 ## 4. Endpoints para las cachés
 
-Rutas propuestas. Falta revisarlas con Fabricio.
+El endpoint de configuración sigue el formato que ya acepta la caché, descrito en [Integración](../Integracion.md). Las rutas de sesiones siguen propuestas.
 
 | Método | Ruta | Operación y acceso |
 | --- | --- | --- |
-| GET | `/api/cache/config?domain=example.com` | Consultar el límite del dominio y sus reglas, sin credenciales ni hashes. Requiere autenticar la caché. |
-| POST | `/api/cache/authorize` | Validar una API key o sesión para un dominio y una ruta. Requiere autenticar la caché. |
+| GET | `/api/cache/config` | Entregar todos los dominios verificados, sus reglas y hashes de API keys. Requiere el token de la caché. Implementada. |
 | POST | `/api/cache/sessions` | Recibir dominio, ruta, usuario y contraseña desde el formulario de la UI y crear una sesión. |
 | DELETE | `/api/cache/sessions/current` | Cerrar la sesión del token recibido. |
 
-La API busca la regla que corresponde al dominio y la ruta. La sesión solo sirve para ese recurso y deja de ser válida cuando vence o se cierra.
+La configuración tiene la forma `{ "domains": [...] }`. Cada dominio incluye `name`, `originUrl` si está guardado, `maxCacheBytes` y `rules`. Cada regla incluye su `id`, patrón, tamaño, mecanismo de acceso, tipos de archivo y `apiKeys` con los hashes SHA-256. No incluye propietarios, tokens TXT, usuarios ni hashes de contraseñas.
 
-La caché debe autenticarse ante la API. Esa autenticación es distinta de la API key del cliente. Falta definir cómo se enviará cada una.
+La caché envía `Authorization: Bearer <CACHE_API_TOKEN>`. Ese valor se configura como `ZC_CONFIG_TOKEN` en la caché y es distinto de la API key del cliente. La respuesta usa `Cache-Control: no-store`. Sin dominios verificados devuelve `{ "domains": [] }`; sin token válido responde `401` y si falta la configuración del token o falla Firestore responde `503`.
+
+La caché valida las API keys con los hashes recibidos, sin consultar a la API en cada petición. El login y las sesiones por recurso quedan pendientes.
 
 ## 5. Pendientes
 
@@ -110,7 +111,7 @@ La caché debe autenticarse ante la API. Esa autenticación es distinta de la AP
 | Implementar la consulta del registro TXT para verificar dominios. | Nicole y Luis Fernando |
 | Definir cómo funciona `*`, qué regla gana si coinciden varias y qué pasa si ninguna coincide. | Nicole y Fabricio |
 | Definir el formato de configuración, el origen de los archivos y cómo la caché recibe los cambios, incluidas las eliminaciones de claves o usuarios. | Nicole y Fabricio |
-| Definir cómo se autentica la caché y qué envía y recibe al validar el acceso. | Nicole y Fabricio |
+| Configurar el mismo valor de `CACHE_API_TOKEN` y `ZC_CONFIG_TOKEN` al conectar la caché con la API. | Nicole y Fabricio |
 | Definir el flujo de login: formulario, entrega del token, uso, vencimiento, cierre de sesión y regreso al recurso. | Nicole y Fabricio |
 | Definir qué datos necesita el DNS Interceptor para reconocer los dominios verificados. | Nicole y Luis Fernando |
 
