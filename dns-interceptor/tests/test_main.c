@@ -8,6 +8,8 @@ int main(void) {
     run_geo_tests();
     run_config_tests();
     run_resolver_tests();
+    run_domains_tests();
+    run_health_tests();
 
     printf("%d verificaciones, %d fallidas\n", tests_run, tests_failed);
     return tests_failed == 0 ? 0 : 1;

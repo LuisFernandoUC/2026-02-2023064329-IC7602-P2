@@ -136,3 +136,17 @@ size_t dns_build_a_response(const uint8_t *req, const dns_query_t *q, uint32_t i
     out[n++] = (uint8_t)ip;
     return n;
 }
+
+size_t dns_build_error(const uint8_t *req, size_t reqlen, uint8_t *out, size_t outcap) {
+    if (reqlen < DNS_HEADER_LEN || outcap < DNS_HEADER_LEN) return 0;
+    if (req[2] & 0x80) return 0; /* es una respuesta: nunca se contesta */
+
+    int opcode = (req[2] >> 3) & 0x0F;
+    int rcode = opcode == 0 ? DNS_RCODE_FORMERR : DNS_RCODE_NOTIMP;
+    memset(out, 0, DNS_HEADER_LEN);
+    out[0] = req[0]; /* ID */
+    out[1] = req[1];
+    out[2] = (uint8_t)(0x80 | (req[2] & 0x79)); /* QR=1, se conservan OPCODE y RD */
+    out[3] = (uint8_t)(0x80 | rcode);           /* RA=1 */
+    return DNS_HEADER_LEN;
+}

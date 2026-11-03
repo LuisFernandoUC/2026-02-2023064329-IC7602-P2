@@ -81,6 +81,22 @@ int config_from_env(config_t *cfg, char *err, size_t errlen) {
     if (parse_int("DI_TTL", env_or("DI_TTL", "30"), 0, 86400, &v, err, errlen)) return -1;
     cfg->ttl = (uint32_t)v;
 
+    if (parse_int("DI_TCP", env_or("DI_TCP", "1"), 0, 1, &cfg->tcp_enabled, err, errlen)) return -1;
+    if (parse_int("DI_DOMAINS_REFRESH_SECONDS", env_or("DI_DOMAINS_REFRESH_SECONDS", "30"), 1, 86400,
+                  &cfg->domains_refresh_seconds, err, errlen))
+        return -1;
+    if (parse_int("DI_HEALTH_PORT", env_or("DI_HEALTH_PORT", "80"), 1, 65535, &cfg->health_port, err,
+                  errlen))
+        return -1;
+    if (parse_int("DI_HEALTH_INTERVAL_SECONDS", env_or("DI_HEALTH_INTERVAL_SECONDS", "5"), 0, 3600,
+                  &cfg->health_interval_seconds, err, errlen))
+        return -1;
+    if (parse_int("DI_HEALTH_TIMEOUT_MS", env_or("DI_HEALTH_TIMEOUT_MS", "1000"), 100, 10000,
+                  &cfg->health_timeout_ms, err, errlen))
+        return -1;
+    snprintf(cfg->domains_url, sizeof(cfg->domains_url), "%s", env_or("DI_DOMAINS_URL", ""));
+    snprintf(cfg->domains_token, sizeof(cfg->domains_token), "%s", env_or("DI_DOMAINS_TOKEN", ""));
+
     snprintf(cfg->upstream_host, sizeof(cfg->upstream_host), "%s", env_or("DI_UPSTREAM_DNS", "8.8.8.8"));
     snprintf(cfg->country_db, sizeof(cfg->country_db), "%s",
              env_or("DI_COUNTRY_DB", "/app/data/dbip-country-lite.csv"));
