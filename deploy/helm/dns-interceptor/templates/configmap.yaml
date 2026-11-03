@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "dns-interceptor.fullname" . }}
+  labels:
+    {{- include "dns-interceptor.labels" . | nindent 4 }}
+data:
+  DI_PORT: {{ .Values.containerPort | quote }}
+  DI_DOMAINS: {{ join "," .Values.domains | quote }}
+  DI_ZONE_IPS: {{ include "dns-interceptor.zoneIPs" . | quote }}
+  DI_DEFAULT_ZONE: {{ .Values.defaultZone | quote }}
+  DI_UPSTREAM_DNS: {{ .Values.upstream.dns | quote }}
+  DI_UPSTREAM_TIMEOUT_MS: {{ .Values.upstream.timeoutMs | quote }}
+  DI_TTL: {{ .Values.ttl | quote }}

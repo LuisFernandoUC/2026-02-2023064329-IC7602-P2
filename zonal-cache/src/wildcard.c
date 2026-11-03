@@ -4,6 +4,7 @@
 #include "wildcard.h"
 
 #include <ctype.h>
+#include <stddef.h>
 
 static int match(const char *pattern, const char *text, int nocase)
 {

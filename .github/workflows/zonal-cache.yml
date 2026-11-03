@@ -45,3 +45,5 @@ jobs:
           helm template zc deploy/helm/zonal-cache \
             --set tls.enabled=false \
             --set-json 'config.inline={"domains":[]}' > /dev/null
+      - name: helm template (integración local con Apache y Rest API Java)
+        run: helm template zonal-cache deploy/helm/zonal-cache -f deploy/helm/zonal-cache/values-local.yaml > /dev/null

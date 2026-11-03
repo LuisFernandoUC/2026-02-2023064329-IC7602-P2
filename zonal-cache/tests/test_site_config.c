@@ -160,6 +160,23 @@ TEST(explicit_policy_wins_over_file_type_policy)
     CHECK(site_config_parse(bad, NULL, 0) == NULL);
 }
 
+TEST(reads_origin_url_rule_id_and_rule_policy)
+{
+    const char *json =
+        "{ \"domains\": [ { \"name\": \"apache.p2.local\", \"originUrl\": \"http://apache-apache/\","
+        "  \"maxCacheBytes\": 10, \"rules\": [ { \"id\": \"r1\", \"pathPattern\": \"/*\","
+        "  \"maxCacheBytes\": 10, \"replacementPolicy\": \"LFU\","
+        "  \"fileTypes\": [ { \"extension\": \"html\", \"ttlSeconds\": 5, \"replacementPolicy\": \"MRU\" } ] } ] } ] }";
+    site_config_t *cfg = site_config_parse(json, NULL, 0);
+    CHECK(cfg != NULL);
+    if (!cfg)
+        return;
+    CHECK_EQ_STR(cfg->domains[0].origin, "http://apache-apache"); /* sin "/" final */
+    CHECK_EQ_STR(cfg->domains[0].rules[0].id, "r1");
+    CHECK_EQ_INT(cfg->domains[0].rules[0].policy, POLICY_LFU); /* la de la regla gana */
+    site_config_free(cfg);
+}
+
 TEST(auth_mode_names)
 {
     CHECK_EQ_INT(auth_mode_from_string("api-key", &(auth_mode_t){0}), 0);
@@ -183,5 +200,6 @@ void suite_site_config(void)
     RUN(empty_domain_list_is_valid);
     RUN(accepts_api_node_field_names);
     RUN(explicit_policy_wins_over_file_type_policy);
+    RUN(reads_origin_url_rule_id_and_rule_policy);
     RUN(auth_mode_names);
 }

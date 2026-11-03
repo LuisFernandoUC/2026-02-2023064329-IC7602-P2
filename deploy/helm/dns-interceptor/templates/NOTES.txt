@@ -1,0 +1,15 @@
+DNS Interceptor desplegado como {{ include "dns-interceptor.fullname" . }}.
+{{- if not (include "dns-interceptor.zoneIPs" .) }}
+
+ATENCIÓN: no se encontró la IP de ninguna caché zonal, y el interceptor no va a arrancar sin ellas.
+Despliega primero el chart zonal-cache (release "{{ .Values.zonalCache.release }}") en el namespace
+{{ .Release.Namespace }} o indica las IPs con --set zones.america=<ip> (ver README del componente).
+{{- end }}
+{{- if eq .Values.service.type "NodePort" }}
+
+Prueba desde tu equipo (cambia la subred para simular un cliente de otro país):
+  dig @127.0.0.1 -p {{ .Values.service.nodePort }} {{ index .Values.domains 0 }} +subnet=80.58.61.0/24
+{{- else }}
+
+Consulta la IP del Service con: kubectl get svc {{ include "dns-interceptor.fullname" . }} -n {{ .Release.Namespace }}
+{{- end }}

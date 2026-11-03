@@ -19,7 +19,7 @@ static const char *CONFIG_JSON =
     "    \"urls\": ["
     "      { \"pattern\": \"/*\", \"cacheSize\": 50000, \"policy\": \"LRU\", \"auth\": \"none\","
     "        \"fileTypes\": [{\"extension\": \"html\", \"ttl\": 60}, {\"extension\": \"png\", \"ttl\": 60}] },"
-    "      { \"pattern\": \"/privado/*\", \"cacheSize\": 50000, \"policy\": \"FIFO\", \"auth\": \"user_password\","
+    "      { \"id\": \"regla-privada\", \"pattern\": \"/privado/*\", \"cacheSize\": 50000, \"policy\": \"FIFO\", \"auth\": \"user_password\","
     "        \"fileTypes\": [{\"extension\": \"*\", \"ttl\": 60}] },"
     "      { \"pattern\": \"/api/*\", \"cacheSize\": 50000, \"auth\": \"api_key\","
     "        \"apiKeys\": [\"" KEY_HASH "\"] }"
@@ -309,7 +309,7 @@ TEST(user_password_redirects_to_login)
     request(&e, "GET /privado/doc.html?x=1 HTTP/1.1\r\nHost: sitio.local:8080\r\n\r\n", 0, &r);
     CHECK_EQ_INT(r.status, 302);
     const char *loc = http_response_header(&r, "Location");
-    CHECK_EQ_STR(loc, LOGIN_URL "?domain=sitio.local&callback="
+    CHECK_EQ_STR(loc, LOGIN_URL "?domain=sitio.local&path=%2Fprivado%2Fdoc.html&callback="
                       "http%3A%2F%2Fsitio.local%3A8080%2F__zc%2Fauth%3Fnext%3D"
                       "%252Fprivado%252Fdoc.html%253Fx%253D1");
     http_response_free(&r);
@@ -371,6 +371,40 @@ TEST(user_password_rejects_bad_sessions)
     http_response_free(&r);
     CHECK_EQ_INT(e.origin.calls, 0);
     free(expired);
+    free(other);
+    env_free(&e);
+}
+
+TEST(session_is_limited_to_its_rule)
+{
+    env_t e;
+    env_init(&e);
+    http_response_t r;
+    char raw[2048];
+
+    /* Token emitido para la regla del recurso: se acepta. */
+    char *ok = auth_token_create_scoped(SECRET, "sitio.local", "ana", "regla-privada", 5000);
+    snprintf(raw, sizeof(raw), "GET /privado/a.html HTTP/1.1\r\nHost: sitio.local\r\nCookie: %s=%s\r\n\r\n",
+             AUTH_SESSION_COOKIE, ok);
+    request(&e, raw, 0, &r);
+    CHECK_EQ_INT(r.status, 200);
+    http_response_free(&r);
+
+    /* Token de otra regla del mismo dominio: con cookie se pide login, con Bearer 401. */
+    char *other = auth_token_create_scoped(SECRET, "sitio.local", "ana", "otra-regla", 5000);
+    snprintf(raw, sizeof(raw), "GET /privado/a.html HTTP/1.1\r\nHost: sitio.local\r\nCookie: %s=%s\r\n\r\n",
+             AUTH_SESSION_COOKIE, other);
+    request(&e, raw, 0, &r);
+    CHECK_EQ_INT(r.status, 302);
+    http_response_free(&r);
+    snprintf(raw, sizeof(raw), "GET /privado/a.html HTTP/1.1\r\nHost: sitio.local\r\nAuthorization: Bearer %s\r\n\r\n",
+             other);
+    request(&e, raw, 0, &r);
+    CHECK_EQ_INT(r.status, 401);
+    http_response_free(&r);
+
+    CHECK_EQ_INT(e.origin.calls, 1);
+    free(ok);
     free(other);
     env_free(&e);
 }
@@ -499,6 +533,7 @@ void suite_proxy(void)
     RUN(user_password_redirects_to_login);
     RUN(user_password_accepts_valid_session);
     RUN(user_password_rejects_bad_sessions);
+    RUN(session_is_limited_to_its_rule);
     RUN(login_callback_sets_cookie);
     RUN(logout_clears_cookie);
     RUN(origin_from_host_when_not_configured);

@@ -87,6 +87,7 @@ const char *auth_mode_to_string(auth_mode_t mode)
 
 static void free_rule(url_rule_t *r)
 {
+    free(r->id);
     free(r->pattern);
     free(r->file_types);
     for (size_t i = 0; i < r->api_key_count; i++)
@@ -114,14 +115,15 @@ void site_config_free(site_config_t *cfg)
 }
 
 /*
- * Política de reemplazo de la regla: el campo "policy" o, si no existe, la
- * "replacementPolicy" del primer tipo de archivo (formato del API Node.js).
- * Por defecto LRU.
+ * Política de reemplazo de la regla: el campo "policy" (alias "replacementPolicy")
+ * o, si no existe, la "replacementPolicy" del primer tipo de archivo (formato
+ * actual de la UI). Por defecto LRU. La caché aplica una sola política por regla,
+ * porque el límite cacheSize es de la regla completa.
  */
 static int parse_policy(const cJSON *json, policy_type_t *out)
 {
     *out = POLICY_LRU;
-    const cJSON *policy = field(json, "policy", NULL);
+    const cJSON *policy = field(json, "policy", "replacementPolicy");
     if (!policy) {
         const cJSON *types = field(json, "fileTypes", NULL);
         const cJSON *first = cJSON_IsArray(types) ? cJSON_GetArrayItem(types, 0) : NULL;
@@ -190,6 +192,7 @@ static int parse_api_keys(const cJSON *json, url_rule_t *r)
 static int parse_rule(const cJSON *json, url_rule_t *r, const char *domain, char *err,
                       size_t err_size)
 {
+    r->id = dup_json_string(field(json, "id", NULL));
     r->pattern = dup_json_string(field(json, "pattern", "pathPattern"));
     if (!r->pattern) {
         set_err(err, err_size, "dominio %s: una URL no tiene 'pattern'", domain);
@@ -236,7 +239,7 @@ static int parse_domain(const cJSON *json, domain_rule_t *d, char *err, size_t e
     }
     zc_str_tolower(d->name);
 
-    d->origin = dup_json_string(field(json, "origin", NULL));
+    d->origin = dup_json_string(field(json, "origin", "originUrl"));
     if (d->origin) {
         size_t len = strlen(d->origin);
         while (len > 0 && d->origin[len - 1] == '/')
