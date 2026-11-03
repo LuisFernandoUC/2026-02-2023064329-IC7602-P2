@@ -1,0 +1,6 @@
+apiVersion: v2
+name: apache
+description: Servidor Apache de origen con HTML básico (Proyecto 2, IC7602).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
