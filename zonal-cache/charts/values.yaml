@@ -1,0 +1,16 @@
+replicaCount: 1
+
+image:
+  repository: zonal-cache
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8080
+
+env:
+  PORT: "8080"
+  CONFIG_API_URL: "http://api:3000"
+
+resources: {}

@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: {{ include "charts.fullname" . }}
+
+spec:
+  replicas: {{ .Values.replicaCount }}
+
+  selector:
+    matchLabels:
+      app: zonal-cache
+
+  template:
+    metadata:
+      labels:
+        app: zonal-cache
+
+    spec:
+
+      containers:
+
+      - name: zonal-cache
+
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+
+        ports:
+        - containerPort: 8080
+
+        env:
+
+        - name: PORT
+          value: "{{ .Values.env.PORT }}"
+
+        - name: CONFIG_API_URL
+          value: "{{ .Values.env.CONFIG_API_URL }}"

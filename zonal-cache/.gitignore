@@ -1,3 +1,11 @@
-bin/
-build/
-dev/certs/
+# Rust
+target/
+
+# Configuración local
+.env
+
+# VS Code
+.vscode/
+
+# Logs
+*.log

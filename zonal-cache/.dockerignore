@@ -1,5 +1,0 @@
-bin/
-build/
-*.md
-docker-compose.yml
-dev/
