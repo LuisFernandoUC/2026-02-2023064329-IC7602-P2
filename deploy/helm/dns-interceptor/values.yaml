@@ -1,0 +1,59 @@
+# Valores por defecto del chart dns-interceptor.
+
+image:
+  repository: dns-interceptor
+  tag: latest
+  # En Docker Desktop/minikube/kind con imágenes locales usar IfNotPresent o Never.
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+service:
+  # NodePort permite probar con dig desde el equipo; en un cluster real usar LoadBalancer.
+  type: NodePort
+  # Puerto UDP que ve el cliente DNS.
+  port: 53
+  # Solo aplica con type NodePort.
+  nodePort: 30053
+
+# Puerto UDP interno del contenedor (DI_PORT). Es mayor que 1024 para correr sin root.
+containerPort: 5353
+
+# Dominios que el interceptor redirige a la caché zonal. Admite comodín "*.dominio".
+# Cualquier otro dominio se reenvía al DNS externo.
+domains:
+  - apache.p2.local
+  - "*.cdn.p2.local"
+
+# IP de cada caché zonal (zona: ip). Los nombres deben coincidir con las zonas del chart
+# zonal-cache y con las de la tabla país-zona de la imagen (america, europa, asia).
+# Si la IP está vacía se busca la del Service <zonalCache.release>-zonal-cache-<zona> al instalar
+# (requiere que la caché zonal ya esté desplegada en el mismo namespace).
+# Para fijarla: --set zones.america=10.96.0.10
+zones:
+  america: ""
+  europa: ""
+  asia: ""
+
+# Zona para países desconocidos, sin zona asignada o con IP privada.
+defaultZone: america
+
+# Nombre del release de Helm con el que se instaló el chart zonal-cache.
+zonalCache:
+  release: zonal-cache
+
+upstream:
+  # DNS externo al que se reenvían los dominios no interceptados.
+  dns: 8.8.8.8
+  timeoutMs: 3000
+
+# TTL (segundos) de las respuestas redirigidas a la caché zonal.
+ttl: 30
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 32Mi
+  limits:
+    cpu: 250m
+    memory: 128Mi
