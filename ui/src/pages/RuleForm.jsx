@@ -237,10 +237,10 @@ export default function RuleForm({ domain, ruleId }) {
           </fieldset>
         </form>
 
-        {rule ? (
-          <RuleCredentials key={authMode} rule={rule} authMode={authMode} />
+        {rule && authMode === rule.authMode ? (
+          <RuleCredentials key={`${rule.id}/${authMode}`} domainId={domain.id} rule={rule} authMode={authMode} />
         ) : (
-          <p className="rounded border border-line bg-soft p-4 text-sm text-muted">Guarda la regla para administrar sus claves o usuarios.</p>
+          <p className="rounded border border-line bg-soft p-4 text-sm text-muted">{rule ? 'Guarda el cambio de mecanismo de acceso para administrar sus claves o usuarios.' : 'Guarda la regla para administrar sus claves o usuarios.'}</p>
         )}
 
         {message && <p role="status" className="form-message">{message}</p>}

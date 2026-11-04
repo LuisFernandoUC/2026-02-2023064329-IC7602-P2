@@ -1,4 +1,5 @@
 import express from 'express';
+import { createHash, randomBytes } from 'node:crypto';
 import { requireAuth } from './auth.js';
 import { getDb } from './firestore.js';
 
@@ -96,6 +97,56 @@ router.delete('/:ruleId', async (req, res) => {
     res.status(204).end();
   } catch {
     res.status(503).json({ error: 'No se pudo eliminar la regla. Intenta de nuevo.' });
+  }
+});
+
+router.use('/:ruleId/keys', async (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  if (req.params.ruleId.includes('/')) return res.status(404).json({ error: 'No se encontró esta regla en el dominio.' });
+  try {
+    req.ruleRef = req.domainRef.collection('rules').doc(req.params.ruleId);
+    const snapshot = await req.ruleRef.get();
+    if (!snapshot.exists) return res.status(404).json({ error: 'No se encontró esta regla en el dominio.' });
+    req.ruleData = snapshot.data();
+    next();
+  } catch {
+    res.status(503).json({ error: 'No se pudo consultar la regla. Intenta de nuevo.' });
+  }
+});
+
+router.get('/:ruleId/keys', async (req, res) => {
+  try {
+    const keys = await req.ruleRef.collection('keys').get();
+    res.json(keys.docs.map((key) => ({ id: key.id })));
+  } catch {
+    res.status(503).json({ error: 'No se pudieron cargar las claves. Intenta de nuevo.' });
+  }
+});
+
+router.post('/:ruleId/keys', async (req, res) => {
+  if (req.ruleData.authMode !== 'api-key') {
+    return res.status(409).json({ error: 'Guarda la regla con acceso por API key antes de crear claves.' });
+  }
+  try {
+    const apiKey = randomBytes(24).toString('base64url');
+    const keyHash = createHash('sha256').update(apiKey).digest('hex');
+    const ref = req.ruleRef.collection('keys').doc();
+    await ref.create({ keyHash });
+    res.status(201).json({ id: ref.id, apiKey });
+  } catch {
+    res.status(503).json({ error: 'No se pudo crear la clave. Intenta de nuevo.' });
+  }
+});
+
+router.delete('/:ruleId/keys/:keyId', async (req, res) => {
+  if (req.params.keyId.includes('/')) return res.status(404).json({ error: 'No se encontró esta clave en la regla.' });
+  try {
+    const ref = req.ruleRef.collection('keys').doc(req.params.keyId);
+    if (!(await ref.get()).exists) return res.status(404).json({ error: 'No se encontró esta clave en la regla.' });
+    await ref.delete();
+    res.status(204).end();
+  } catch {
+    res.status(503).json({ error: 'No se pudo eliminar la clave. Intenta de nuevo.' });
   }
 });
 

@@ -84,7 +84,7 @@ El listado devuelve el origen guardado. Los dominios creados antes de este campo
 
 Responde `201` al guardar, `400` si los datos no son válidos, `409` si el dominio ya está en esa cuenta y `503` si falla Firestore. El límite debe ser un entero positivo de bytes y el nombre debe permitir formar un registro TXT de hasta 253 caracteres.
 
-La eliminación de dominios, la consulta del TXT y las credenciales siguen pendientes. `apache.local` sirve para probar el guardado local; verificar la propiedad requiere poder modificar el DNS que consulta la API.
+La eliminación de dominios, la consulta del TXT y los usuarios de recursos siguen pendientes. `apache.local` sirve para probar el guardado local; verificar la propiedad requiere poder modificar el DNS que consulta la API.
 
 ## Reglas de URL
 
@@ -101,13 +101,23 @@ El cuerpo de creación o edición usa bytes y segundos:
 {"pathPattern":"/prueba/*","maxCacheBytes":524288,"authMode":"api-key","fileTypes":[{"extension":"html","ttlSeconds":60,"replacementPolicy":"LRU"}]}
 ```
 
-El patrón empieza con `/` y puede incluir comodines. El tamaño es un entero positivo que no supera el límite del dominio. Debe haber al menos una extensión, sin repeticiones, con TTL entero mayor o igual que cero y política `LRU`, `LFU`, `FIFO`, `MRU` o `Random`. Se acepta `api-key` o `password` como mecanismo de acceso. La administración de sus claves y usuarios aún está pendiente.
+El patrón empieza con `/` y puede incluir comodines. El tamaño es un entero positivo que no supera el límite del dominio. Debe haber al menos una extensión, sin repeticiones, con TTL entero mayor o igual que cero y política `LRU`, `LFU`, `FIFO`, `MRU` o `Random`. Se acepta `api-key` o `password` como mecanismo de acceso. La administración de usuarios de recursos aún está pendiente.
 
 Las reglas se guardan en `domains/{domainId}/rules/{ruleId}` y pueden configurarse antes de verificar el dominio. Una edición conserva su ID y las subcolecciones. Una eliminación usa `recursiveDelete`; no se puede deshacer desde la UI.
 
 Respuestas: `200` al listar o editar, `201` al crear, `204` al eliminar, `400` para datos inválidos, `404` para un dominio ajeno o datos inexistentes y `503` si falla Firestore. Ninguna operación permite elegir otro propietario.
 
 La API conserva la política de cada tipo de archivo. La caché actual aplica una política por regla usando la del primer tipo; ese acuerdo de integración sigue pendiente en `Docs/Integracion.md`.
+
+## API keys
+
+Las rutas `/api/domains/:domainId/rules/:ruleId/keys` comprueban la sesión, el propietario del dominio y la existencia de la regla:
+
+- `GET` lista solo los identificadores de las claves.
+- `POST` genera una clave y devuelve `{ id, apiKey }` con estado `201`.
+- `DELETE /:keyId` elimina la clave y responde `204`.
+
+La creación usa 24 bytes aleatorios en base64url y guarda únicamente su hash SHA-256 en la subcolección `keys` de la regla. El valor original se entrega solo al crearla. La regla debe estar guardada con `authMode: "api-key"`; si no, la creación responde `409`. Las respuestas usan `Cache-Control: no-store`. Una clave eliminada deja de funcionar cuando la caché vuelve a consultar su configuración.
 
 ## Configuración para las cachés
 
@@ -119,7 +129,7 @@ La respuesta no incluye propietarios, tokens TXT, usuarios, contraseñas ni hash
 
 Si no hay dominios verificados, devuelve `200` y `{ "domains": [] }`. Un token ausente o incorrecto responde `401`. Si falta `CACHE_API_TOKEN`, responde `503`.
 
-Guardar credenciales y verificar el TXT siguen pendientes. Este endpoint lee los documentos existentes; todavía falta completar esos pasos y conectar el despliegue de la caché con la API.
+Los usuarios de recursos y la verificación TXT siguen pendientes. Todavía falta completar esos pasos y conectar el despliegue de la caché con la API.
 
 Agregar `CACHE_API_TOKEN` a `.env` y usar el mismo valor como `ZC_CONFIG_TOKEN` en la caché. Se puede generar un valor con `openssl rand -hex 32`. No subirlo al repositorio ni ponerlo en variables `VITE_`.
 
@@ -139,7 +149,7 @@ Debe responder con HTTP `200` y este JSON:
 
 Una ruta inexistente responde con HTTP `404` y `{"error":"Ruta no encontrada"}`. Si se cambia `HOST` o `PORT`, ajustar la dirección del comando.
 
-Para probar la autenticación, los dominios, las reglas y la configuración de las cachés:
+Para probar la autenticación, los dominios, las reglas, las API keys y la configuración de las cachés:
 
 ```bash
 npm test
@@ -148,6 +158,8 @@ npm test
 Las pruebas cubren autenticación, validaciones, duplicados, separación de cuentas y errores del servicio. Las de configuración verifican el token de caché, el filtro de dominios verificados, los datos entregados, las claves revocadas y los fallos de Firestore. Usan credenciales locales y documentos en memoria. No crean cuentas ni modifican Firebase.
 
 Las pruebas de reglas cubren el guardado y la consulta, la edición, la eliminación de subcolecciones, los permisos por propietario, los datos inválidos y la entrega de una regla guardada a `/api/cache/config`.
+
+Las de API keys comprueban la creación, el listado sin valores ni hashes, la eliminación, los permisos y los fallos de Firestore. También verifican que la configuración de la caché incluya el hash guardado y deje de entregarlo al eliminar la clave.
 
 Con la API en ejecución, consultar el endpoint usando el valor de `CACHE_API_TOKEN` de `.env`:
 

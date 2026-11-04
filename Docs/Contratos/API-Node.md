@@ -2,7 +2,7 @@
 
 **Responsable:** Nicole Parra Valverde
 
-**Estado:** implementados `/api/health`, `GET /api/domains`, `POST /api/domains`, la administración de reglas y `GET /api/cache/config`. Las demás rutas son propuestas.
+**Estado:** implementados `/api/health`, `GET /api/domains`, `POST /api/domains`, la administración de reglas y API keys, y `GET /api/cache/config`. Las demás rutas son propuestas.
 
 Basado en las páginas 4 y 5 del [enunciado](../Proyectos-2026-02-IC7602-P2.pdf).
 
@@ -76,9 +76,9 @@ El registro, inicio y cierre de sesión del panel usan Firebase Authentication c
 | POST | `/api/rules/:ruleId/users` | Crear un usuario de acceso. |
 | PUT | `/api/rules/:ruleId/users/:userId` | Modificar el usuario o su contraseña. |
 | DELETE | `/api/rules/:ruleId/users/:userId` | Eliminar el usuario y cerrar sus sesiones. |
-| GET | `/api/rules/:ruleId/keys` | Listar los identificadores de las API keys. |
-| POST | `/api/rules/:ruleId/keys` | Crear una API key y devolver su valor una sola vez. |
-| DELETE | `/api/rules/:ruleId/keys/:keyId` | Eliminar una API key. |
+| GET | `/api/domains/:domainId/rules/:ruleId/keys` | Listar los identificadores de las API keys. Implementada. |
+| POST | `/api/domains/:domainId/rules/:ruleId/keys` | Crear una API key y devolver su valor una sola vez. Implementada. |
+| DELETE | `/api/domains/:domainId/rules/:ruleId/keys/:keyId` | Eliminar una API key. Implementada. |
 
 Al agregar un dominio, la API devuelve el registro `_verificacion.<dominio>` con un token generado en el servidor. Se guarda con `verified: false`. La consulta del TXT para verificar la propiedad sigue pendiente. Solo los dominios verificados se enviarán a las cachés.
 
@@ -89,6 +89,8 @@ El listado filtra por el UID de la sesión y el registro toma ese mismo UID como
 Las reglas se guardan en `domains/{domainId}/rules/{ruleId}`. Todas sus operaciones comprueban la sesión y el propietario del dominio. Se pueden configurar mientras el dominio esté pendiente de verificación. El tamaño debe ser positivo y no superar el límite del dominio; las extensiones no se repiten, el TTL es un entero mayor o igual que cero y las políticas son las cinco indicadas arriba. El ID se genera en el servidor.
 
 El listado responde `200`, el registro `201`, la edición `200` y la eliminación `204`. Datos inválidos responden `400`; un dominio ajeno o inexistente, o una regla inexistente, responde `404`. Un fallo de Firestore responde `503`. La edición conserva el ID y las subcolecciones; la eliminación usa `recursiveDelete` para no dejarlas huérfanas.
+
+Las API keys usan los mismos permisos del dominio. Se generan en el servidor y solo se guarda `keyHash` en `domains/{domainId}/rules/{ruleId}/keys/{keyId}`. La creación responde `201` con `{ id, apiKey }`; el listado devuelve únicamente los IDs y la eliminación responde `204`. Crear una clave requiere que la regla esté guardada con `authMode: "api-key"`; de lo contrario responde `409`. Las respuestas usan `Cache-Control: no-store`.
 
 La comprobación del propietario se agregará al implementar las rutas restantes del panel.
 

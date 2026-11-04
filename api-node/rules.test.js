@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { generateKeyPairSync } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import { getAuth } from 'firebase-admin/auth';
 import app from './app.js';
@@ -27,7 +27,7 @@ before(async () => {
 after(() => new Promise((resolve) => server.close(resolve)));
 
 // Los documentos y las credenciales de estas pruebas solo existen en memoria.
-function mockFirebase(t) {
+function mockFirebase(t, failAt) {
   const records = new Map([
     ['domains/dominio-a', { ownerId: 'cuenta-a', name: 'apache.local', maxCacheBytes: 1048576, originUrl: 'http://apache-apache', verified: true }],
     ['domains/dominio-b', { ownerId: 'cuenta-b', name: 'otro.local', maxCacheBytes: 1048576, verified: false }],
@@ -38,15 +38,26 @@ function mockFirebase(t) {
       id: path.split('/').at(-1), path,
       get: async () => ({ exists: records.has(path), data: () => records.get(path) }),
       collection: (name) => collection(`${path}/${name}`),
-      async create(data) { assert.equal(records.has(path), false); records.set(path, data); },
+      async create(data) {
+        if (failAt === 'key-create' && path.includes('/keys/')) throw new Error('Detalle privado de Firestore');
+        assert.equal(records.has(path), false);
+        records.set(path, data);
+      },
       async update(data) { assert.ok(records.has(path)); records.set(path, { ...records.get(path), ...data }); },
+      async delete() {
+        if (failAt === 'key-delete') throw new Error('Detalle privado de Firestore');
+        records.delete(path);
+      },
     };
   }
   function collection(path) {
-    const read = async (filter = () => true) => ({
-      docs: [...records].filter(([key, data]) => key.startsWith(`${path}/`) && !key.slice(path.length + 1).includes('/') && filter(data))
-        .map(([key, data]) => ({ id: document(key).id, ref: document(key), data: () => data })),
-    });
+    const read = async (filter = () => true) => {
+      if (failAt === 'keys-read' && path.endsWith('/keys')) throw new Error('Detalle privado de Firestore');
+      return {
+        docs: [...records].filter(([key, data]) => key.startsWith(`${path}/`) && !key.slice(path.length + 1).includes('/') && filter(data))
+          .map(([key, data]) => ({ id: document(key).id, ref: document(key), data: () => data })),
+      };
+    };
     return {
       doc: (id = `regla-${++nextId}`) => document(`${path}/${id}`),
       get: () => read(),
@@ -76,7 +87,7 @@ function request(method, path = '', body, domain = 'dominio-a', token = 'cuenta-
 }
 
 test('todas las operaciones de reglas requieren sesión', async () => {
-  for (const [method, path] of [['GET', ''], ['POST', ''], ['PUT', '/regla-a'], ['DELETE', '/regla-a']]) {
+  for (const [method, path] of [['GET', ''], ['POST', ''], ['PUT', '/regla-a'], ['DELETE', '/regla-a'], ['GET', '/regla-a/keys'], ['POST', '/regla-a/keys'], ['DELETE', '/regla-a/keys/clave-a']]) {
     const response = await fetch(`${baseUrl}/api/domains/dominio-a/rules${path}`, { method });
     assert.equal(response.status, 401);
   }
@@ -86,7 +97,7 @@ test('otra cuenta no puede leer, crear, modificar ni eliminar reglas del dominio
   const records = mockFirebase(t);
   records.set('domains/dominio-a/rules/regla-a', validRule());
   const original = [...records];
-  for (const [method, path] of [['GET', ''], ['POST', ''], ['PUT', '/regla-a'], ['DELETE', '/regla-a']]) {
+  for (const [method, path] of [['GET', ''], ['POST', ''], ['PUT', '/regla-a'], ['DELETE', '/regla-a'], ['GET', '/regla-a/keys'], ['POST', '/regla-a/keys'], ['DELETE', '/regla-a/keys/clave-a']]) {
     const response = await request(method, path, method === 'POST' || method === 'PUT' ? validRule() : undefined, 'dominio-a', 'cuenta-b');
     assert.equal(response.status, 404);
   }
@@ -178,5 +189,92 @@ test('los fallos de Firestore no exponen detalles ni confirman operaciones falli
   for (const response of [await request('GET'), await request('POST', '', validRule()), await request('PUT', '/regla-a', validRule()), await request('DELETE', '/regla-a')]) {
     assert.equal(response.status, 503);
     assert.doesNotMatch(JSON.stringify(await response.json()), /Detalle privado/);
+  }
+});
+
+function cacheConfig() {
+  process.env.CACHE_API_TOKEN = 'token-pruebas-claves';
+  return fetch(`${baseUrl}/api/cache/config`, { headers: { Authorization: 'Bearer token-pruebas-claves' } });
+}
+
+test('genera claves distintas y guarda solo sus hashes; el listado muestra únicamente IDs', async (t) => {
+  const records = mockFirebase(t);
+  records.set('domains/dominio-a/rules/regla-a', validRule());
+  const first = await request('POST', '/regla-a/keys', { apiKey: 'del-cliente', keyHash: 'no-usar' });
+  assert.equal(first.status, 201);
+  assert.equal(first.headers.get('Cache-Control'), 'no-store');
+  const key = await first.json();
+  assert.equal(typeof key.apiKey, 'string');
+  assert.notEqual(key.apiKey, 'del-cliente');
+  const hash = createHash('sha256').update(key.apiKey).digest('hex');
+  assert.deepEqual(records.get(`domains/dominio-a/rules/regla-a/keys/${key.id}`), { keyHash: hash });
+  const second = await request('POST', '/regla-a/keys');
+  const other = await second.json();
+  assert.notEqual(key.apiKey, other.apiKey);
+  const listed = await request('GET', '/regla-a/keys');
+  assert.deepEqual(await listed.json(), [{ id: key.id }, { id: other.id }]);
+  const config = await cacheConfig();
+  const data = await config.json();
+  assert.ok(data.domains[0].rules[0].apiKeys.includes(hash));
+  assert.equal(JSON.stringify(data).includes(key.apiKey), false);
+});
+
+test('eliminar una clave la quita del listado y de la configuración para la caché', async (t) => {
+  const records = mockFirebase(t);
+  records.set('domains/dominio-a/rules/regla-a', validRule());
+  const created = await request('POST', '/regla-a/keys');
+  const key = await created.json();
+  const removed = await request('DELETE', `/regla-a/keys/${key.id}`);
+  assert.equal(removed.status, 204);
+  assert.equal(records.has(`domains/dominio-a/rules/regla-a/keys/${key.id}`), false);
+  const listed = await request('GET', '/regla-a/keys');
+  assert.deepEqual(await listed.json(), []);
+  const config = await cacheConfig();
+  assert.deepEqual((await config.json()).domains[0].rules[0].apiKeys, []);
+});
+
+test('las claves no permiten saltar a otra regla ni usar rutas de documento inválidas', async (t) => {
+  const records = mockFirebase(t);
+  records.set('domains/dominio-a/rules/regla-a', validRule());
+  records.set('domains/dominio-a/rules/regla-b/keys/clave-b', { keyHash: 'hash' });
+  const original = [...records];
+  for (const response of [
+    await request('GET', '/inexistente/keys'),
+    await request('POST', '/inexistente/keys'),
+    await request('DELETE', '/regla-a/keys/clave-b'),
+    await request('GET', '/ruta%2Fno%2Fvalida/keys'),
+    await request('DELETE', '/regla-a/keys/ruta%2Fno%2Fvalida'),
+  ]) assert.equal(response.status, 404);
+  assert.deepEqual([...records], original);
+});
+
+test('crear claves requiere que el mecanismo guardado de la regla sea API key', async (t) => {
+  const records = mockFirebase(t);
+  records.set('domains/dominio-a/rules/regla-a', validRule({ authMode: 'password' }));
+  const response = await request('POST', '/regla-a/keys');
+  assert.equal(response.status, 409);
+  assert.equal(records.size, 3);
+});
+
+test('un dominio pendiente puede configurar claves sin enviarlas aún a la caché', async (t) => {
+  const records = mockFirebase(t);
+  records.get('domains/dominio-a').verified = false;
+  records.set('domains/dominio-a/rules/regla-a', validRule());
+  const created = await request('POST', '/regla-a/keys');
+  assert.equal(created.status, 201);
+  const config = await cacheConfig();
+  assert.deepEqual(await config.json(), { domains: [] });
+});
+
+test('un fallo al leer, crear o eliminar claves no revela datos ni devuelve éxito', async (t) => {
+  for (const [failAt, method, path] of [['keys-read', 'GET', '/regla-a/keys'], ['key-create', 'POST', '/regla-a/keys'], ['key-delete', 'DELETE', '/regla-a/keys/clave-a']]) {
+    const records = mockFirebase(t, failAt);
+    records.set('domains/dominio-a/rules/regla-a', validRule());
+    records.set('domains/dominio-a/rules/regla-a/keys/clave-a', { keyHash: 'hash-existente' });
+    const original = [...records];
+    const response = await request(method, path);
+    assert.equal(response.status, 503);
+    assert.deepEqual(Object.keys(await response.json()), ['error']);
+    assert.deepEqual([...records], original);
   }
 });

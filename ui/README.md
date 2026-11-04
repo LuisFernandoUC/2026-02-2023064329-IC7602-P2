@@ -1,6 +1,6 @@
 # UI
 
-Panel con React, Vite y Tailwind CSS. El registro, inicio y cierre de sesión usan Firebase Authentication. Los dominios y las reglas de URL están conectados a la API y Firestore. Las operaciones de credenciales siguen pendientes.
+Panel con React, Vite y Tailwind CSS. El registro, inicio y cierre de sesión usan Firebase Authentication. Los dominios, las reglas de URL y las API keys están conectados a la API y Firestore. Los usuarios de recursos siguen pendientes.
 
 ## Ejecutar
 
@@ -41,7 +41,9 @@ Las pantallas del panel requieren sesión. Las solicitudes hechas con `apiReques
 
 El detalle del dominio muestra su servidor de origen. Si fue creado antes de agregar este campo, muestra **Sin configurar**; no se cambia su configuración automáticamente.
 
-Desde el detalle se pueden agregar, editar y eliminar reglas de URL. El formulario guarda el patrón, el tamaño de caché, el mecanismo de acceso y los tipos de archivo con su TTL y política. Convierte MB a bytes al guardar. Después vuelve a la lista y consulta las reglas guardadas. Para eliminar una regla se pide confirmación. Las claves y los usuarios siguen pendientes.
+Desde el detalle se pueden agregar, editar y eliminar reglas de URL. El formulario guarda el patrón, el tamaño de caché, el mecanismo de acceso y los tipos de archivo con su TTL y política. Convierte MB a bytes al guardar. Después vuelve a la lista y consulta las reglas guardadas. Para eliminar una regla se pide confirmación.
+
+En **Editar regla**, si el acceso guardado es por API key, se pueden crear y eliminar claves. Una clave nueva se muestra una sola vez para copiarla; **Ocultar clave** retira su valor de la pantalla. La lista muestra solo los identificadores. La eliminación pide confirmación y llega a las cachés cuando actualizan su configuración. Si se cambia el mecanismo de acceso, hay que guardar la regla antes de administrar sus claves o usuarios. Los usuarios de recursos siguen pendientes.
 
 `#/acceso-recurso` es el formulario para usuarios de recursos y permanece público. Todavía falta conectarlo con la API de acceso a las cachés; no usa la cuenta del panel.
 
@@ -56,6 +58,8 @@ Para probar el flujo completo, crear una cuenta desde la UI, recargar la página
 Para probar dominios, agregar `apache.local` con origen `http://apache-apache` y un límite de 1 MB. Abrirlo y recargar: debe conservar el origen y seguir pendiente. Intentar agregarlo otra vez debe mostrar un error. Si ya existe, no se debe volver a crear. Este nombre se usa para las pruebas locales del grupo; no confirma propiedad mediante DNS público.
 
 Para probar reglas en ese dominio, agregar `/prueba/*` con 0.5 MB, tipo `html`, TTL de 60 segundos, política `LRU` y acceso por API key. Guardar, recargar y abrir **Editar**: los datos deben conservarse. Cambiar el TTL y guardar debe actualizar la misma regla. Si se elimina una regla de prueba desde su confirmación, debe desaparecer de la lista también al recargar.
+
+Para probar las claves, abrir **Editar regla → Crear clave**, copiar el valor y ocultarlo. Al recargar debe quedar solo su identificador. Eliminar esa clave de prueba desde la confirmación y recargar: ya no debe aparecer.
 
 ## Referencias
 

@@ -97,7 +97,7 @@ flowchart LR
 | Servidor de origen | `domains[].origin` o `originUrl` | El formulario pide `originUrl` y la API lo valida y guarda al agregar el dominio | Implementado en API y UI; los dominios anteriores pueden no tenerlo |
 | Configuración | `GET ZC_CONFIG_URL` con todos los dominios | API: `GET /api/cache/config` entrega los dominios verificados y sus reglas | Implementado en API; falta conectar el despliegue |
 | Autenticar la caché ante el API | `Authorization: Bearer <ZC_CONFIG_TOKEN>` | API: compara el token con `CACHE_API_TOKEN` | Implementado; falta configurar el mismo valor en ambos |
-| API keys | SHA-256 en `apiKeys[]` (valida localmente) | API: entrega solo `keyHash` a la caché autenticada | Contrato ajustado; falta crear las claves desde la UI |
+| API keys | SHA-256 en `apiKeys[]` (valida localmente) | API: entrega solo `keyHash` a la caché autenticada | Creación, listado de IDs y eliminación conectados a la UI |
 | Formato de reglas | `pattern`, `cacheSize`, `auth`, `fileTypes[].ttl` | API: `pathPattern`, `maxCacheBytes`, `authMode`, `ttlSeconds` | La caché acepta ambos nombres |
 | Política de reemplazo | Una por regla | UI: una por tipo de archivo | La caché usa `replacementPolicy` de la regla o la del primer tipo |
 | Login de recursos | `ZC_LOGIN_URL?domain&path&callback` → JWT HS256 | UI: `#/acceso-recurso` con datos fijos de ejemplo. API: propone `POST /api/cache/sessions` | Falta en UI y API (secciones 6.3 y 6.4) |
@@ -231,7 +231,7 @@ El DNS Interceptor se instala **después** de la caché, porque busca la IP de l
 
 ## 6. Cambios necesarios en el API Node.js y la UI
 
-El endpoint `GET /api/cache/config`, el campo `originUrl` y las operaciones de reglas de URL ya están implementados. El login de recursos y la administración de claves y usuarios siguen pendientes.
+El endpoint `GET /api/cache/config`, el campo `originUrl`, las operaciones de reglas de URL y las API keys ya están implementados. El login de recursos y la administración de sus usuarios siguen pendientes.
 
 ### 6.1 Variables de entorno nuevas del API
 
@@ -260,7 +260,7 @@ domains/{domainId}              ownerId, name, maxCacheBytes, verified, verifica
   - Los `passwordHash` nunca salen del API.
 - **Unicidad:** el id del documento es `<uid>_<dominio>`, así que dos cuentas pueden registrar el mismo dominio. Solo una debería quedar con `verified: true`.
 
-Las reglas ya se pueden listar, crear, editar y eliminar desde la UI. La API comprueba el propietario y guarda solo sus campos de configuración bajo `domains/{domainId}/rules/{ruleId}`. La eliminación borra también sus subcolecciones. El registro de claves y usuarios aún no está conectado.
+Las reglas ya se pueden listar, crear, editar y eliminar desde la UI. La API comprueba el propietario y guarda solo sus campos de configuración bajo `domains/{domainId}/rules/{ruleId}`. La eliminación borra también sus subcolecciones. Las API keys se crean y eliminan desde la edición de la regla; solo su hash queda guardado y el listado devuelve los IDs. El registro de usuarios aún no está conectado.
 
 ### 6.3 Endpoints para las cachés
 
@@ -373,7 +373,7 @@ const salt = randomBytes(16);
 const passwordHash = `scrypt$${salt.toString('hex')}$${scryptSync(password, salt, 64).toString('hex')}`;
 ```
 
-Las API keys (`POST /api/rules/:ruleId/keys`) se guardan así:
+Las API keys (`POST /api/domains/:domainId/rules/:ruleId/keys`) se guardan así:
 
 ```js
 const apiKey = randomBytes(24).toString('base64url');           // se muestra una sola vez
