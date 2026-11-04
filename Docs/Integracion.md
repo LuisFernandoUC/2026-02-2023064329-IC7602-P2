@@ -100,6 +100,9 @@ flowchart LR
 | API keys | SHA-256 en `apiKeys[]` (valida localmente) | API: entrega solo `keyHash` a la caché autenticada | Contrato ajustado; falta crear las claves desde la UI |
 | Formato de reglas | `pattern`, `cacheSize`, `auth`, `fileTypes[].ttl` | API: `pathPattern`, `maxCacheBytes`, `authMode`, `ttlSeconds` | La caché acepta ambos nombres |
 | Política de reemplazo | Una por regla | UI: una por tipo de archivo | La caché usa `replacementPolicy` de la regla o la del primer tipo |
+| Reglas públicas | `auth: none` | API: `authMode` solo acepta `api-key` o `password` | Falta en API y UI; sin esto no se puede cachear contenido público configurado desde la UI |
+| Cualquier tipo de archivo | `fileTypes[].extension: "*"` | API: la validación de extensiones rechaza `*` | Hay que listar cada extensión; las rutas sin extensión cuentan como `html` |
+| Dominios verificados | `/api/cache/config` solo entrega `verified: true` | API: ningún endpoint marca el dominio como verificado | Falta la verificación TXT; mientras tanto la caché recibe `{"domains": []}` |
 | Login de recursos | `ZC_LOGIN_URL?domain&path&callback` → JWT HS256 | UI: `#/acceso-recurso` con datos fijos de ejemplo. API: propone `POST /api/cache/sessions` | Falta en UI y API (secciones 6.3 y 6.4) |
 | Sesión por recurso | Claim `rule` = `id` de la regla | API: "la sesión solo sirve para ese recurso" | Agregado en la caché |
 | Cierre de sesión | `/__zc/logout` borra la cookie | API: `DELETE /api/cache/sessions/current` | El JWT vence solo; la revocación es opcional |
@@ -228,6 +231,9 @@ El DNS Interceptor se instala **después** de la caché, porque busca la IP de l
 | [values.yaml](../deploy/helm/zonal-cache/values.yaml) | Ejemplos de `origin` y `loginUrl` con los nombres reales. |
 | [zonal-cache.yml](../.github/workflows/zonal-cache.yml) | `helm template` con `values-local.yaml`. |
 | [zonal-cache/README.md](../zonal-cache/README.md) | Contrato actualizado: `path`, `rule`, `id` y `originUrl`. |
+| [src/util.c](../zonal-cache/src/util.c) | Valor inicial correcto de FNV-1a 64 (`14695981039346656037`); antes le faltaba un dígito y fallaba la prueba `fnv_is_deterministic`. |
+| [docker-compose.yml](../zonal-cache/docker-compose.yml) | El comando del contenedor `certs` se partía en varias líneas (bloque `>` de YAML con sangría desigual) y `openssl` no recibía `-subj` ni `-keyout`. |
+| [deploy/test-k8s.sh](../deploy/test-k8s.sh) | Script nuevo con las pruebas de integración de la sección 8. |
 
 ## 6. Cambios necesarios en el API Node.js y la UI
 
@@ -476,6 +482,24 @@ curl -si --resolve api.cdn.p2.local:80:<IP> http://api.cdn.p2.local/api/items   
 curl -si -H 'x-api-key: clave-valida' --resolve api.cdn.p2.local:80:<IP> http://api.cdn.p2.local/api/items
 ```
 
+Todas estas pruebas, y otras más, están automatizadas en [deploy/test-k8s.sh](../deploy/test-k8s.sh):
+
+```bash
+deploy/test-k8s.sh            # integración
+deploy/test-k8s.sh --unit     # + pruebas unitarias de la caché y del DNS Interceptor
+```
+
+El 03/11/2026, con Kubernetes de Docker Desktop, dio **47 correctas y 0 fallidas**. Cubre:
+
+- el DNS de las tres zonas, el comodín, la zona por defecto, el reenvío y el NodePort desde el equipo;
+- health, MISS y luego HIT, y la independencia de cada zona;
+- HTTPS;
+- `x-api-key` y GET/POST/PUT/DELETE de la Rest API Java;
+- los errores `404` y `508`;
+- las pruebas unitarias.
+
+Los sitios externos HTTP/HTTPS y la redirección al login no están en `values-local.yaml`; se prueban con `docker compose -f zonal-cache/docker-compose.yml up --build` (ver [zonal-cache/README.md](../zonal-cache/README.md#entorno-local-completo-con-docker-compose)).
+
 Para usar el API en lugar de `values-local.yaml`:
 
 ```bash
@@ -490,6 +514,11 @@ helm upgrade --install zonal-cache deploy/helm/zonal-cache \
 
 | Pendiente | Responsable |
 | --- | --- |
+| Verificación TXT del dominio (marcar `verified: true`); sin ella `/api/cache/config` devuelve una lista vacía | Nicole |
+| Crear y eliminar API keys (`keys/{id}.keyHash`) y crear, modificar y eliminar usuarios | Nicole |
+| Aceptar reglas sin autenticación (`none`) y el tipo de archivo `*` en el API y la UI | Nicole |
+| Eliminar dominios | Nicole |
+| Desplegar el API y la UI en Vercel y conectar la caché con `config.url` | Nicole y Fabricio |
 | Implementar `POST /api/cache/sessions` (sección 6.3) | Nicole |
 | Conectar `#/acceso-recurso` al API y corregir la ruta con parámetros en `App.jsx` | Nicole |
 | Definir si la política de reemplazo es por regla o por tipo de archivo | Nicole y Fabricio |
