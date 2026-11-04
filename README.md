@@ -190,10 +190,10 @@ kubectl get pods,svc
 3. Ejecución local, como alternativa (requiere Node.js 24):
 
    ```bash
-   cd api-node && cp .env.example .env    # completar FIREBASE_* y CACHE_API_TOKEN
+   cd api-node && cp -n .env.example .env # completar FIREBASE_* y CACHE_*
    npm ci && npm run check:firestore && npm run dev
 
-   cd ui && cp .env.example .env          # completar VITE_FIREBASE_* y VITE_API_URL
+   cd ui && cp -n .env.example .env       # completar VITE_FIREBASE_* y VITE_API_URL
    npm ci && npm run dev                  # http://localhost:5173
    ```
 
@@ -201,7 +201,7 @@ Detalles en [api-node/README.md](api-node/README.md) y [ui/README.md](ui/README.
 
 ### 6.6 Verificar que todo funciona
 
-El script [deploy/test-k8s.sh](deploy/test-k8s.sh) ejecuta todas las pruebas de integración contra el cluster. Crea un pod temporal con `curl`, `dig` y `openssl`, porque las IPs de las cachés son `ClusterIP` y solo se alcanzan desde dentro del cluster.
+El script [deploy/test-k8s.sh](deploy/test-k8s.sh) prueba DNS, Apache, Java, las tres cachés, MISS/HIT y SSL termination contra el cluster. Crea un pod temporal con `curl`, `dig` y `openssl`, porque las IPs de las cachés son `ClusterIP` y solo se alcanzan desde dentro del cluster.
 
 ```bash
 deploy/test-k8s.sh            # pruebas de integración (~30 s)
@@ -222,6 +222,14 @@ Termina con código `0` si todas las pruebas pasan. Salida resumida:
 == Resumen
   47 correctas, 0 fallidas
 ```
+
+Para comprobar la API y la UI publicadas, ejecutar desde `api-node`:
+
+```bash
+API_URL=https://<api>.vercel.app UI_URL=https://<ui>.vercel.app npm run check:deployment
+```
+
+Comprueba disponibilidad, CORS, acceso a Firestore y rechazo de solicitudes sin autorización. Las pruebas con DNS y caché se hacen con el clúster desplegado.
 
 Pruebas manuales equivalentes:
 

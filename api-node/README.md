@@ -207,6 +207,16 @@ curl -i -H 'Authorization: Bearer <CACHE_API_TOKEN>' http://127.0.0.1:3000/api/c
 
 Reemplazar `<CACHE_API_TOKEN>` por el valor local. Debe responder `200` con la lista de dominios verificados, o una lista vacía si aún no hay ninguno. Repetir sin el encabezado debe responder `401`.
 
+## Comprobar API y UI
+
+Ejecutar desde esta carpeta, con las URLs publicadas:
+
+```bash
+API_URL=https://<api>.vercel.app UI_URL=https://<ui>.vercel.app npm run check:deployment
+```
+
+Usa `CACHE_API_TOKEN` del `.env` local. Comprueba disponibilidad, CORS, Firestore y rechazo de accesos inválidos, sin modificar datos. Si se omiten las URLs, usa las direcciones locales.
+
 ## Referencias
 
 - [Datos y endpoints propuestos](../Docs/Contratos/API-Node.md).
