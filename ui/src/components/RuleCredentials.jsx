@@ -8,31 +8,29 @@ export default function RuleCredentials({ domainId, rule, authMode }) {
   const [deleting, setDeleting] = useState(null);
   const [message, setMessage] = useState('');
   const isApiKey = authMode === 'api-key';
-  const [keys, setKeys] = useState([]);
-  const [loading, setLoading] = useState(isApiKey);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [busy, setBusy] = useState(false);
   const [newKey, setNewKey] = useState(null);
-  const keysPath = `/api/domains/${encodeURIComponent(domainId)}/rules/${encodeURIComponent(rule.id)}/keys`;
-  const items = isApiKey ? keys : rule.users ?? [];
+  const credentialsPath = `/api/domains/${encodeURIComponent(domainId)}/rules/${encodeURIComponent(rule.id)}/${isApiKey ? 'keys' : 'users'}`;
 
   useEffect(() => {
-    if (!isApiKey) return;
     let active = true;
-    apiRequest(keysPath)
-      .then((data) => { if (active) setKeys(data); })
+    apiRequest(credentialsPath)
+      .then((data) => { if (active) setItems(data); })
       .catch((error) => { if (active) setLoadError(error.message); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [isApiKey, keysPath]);
+  }, [credentialsPath]);
 
   async function createKey() {
     setBusy(true);
     setMessage('');
     setNewKey(null);
     try {
-      const created = await apiRequest(keysPath, { method: 'POST' });
-      setKeys((current) => [...current, { id: created.id }]);
+      const created = await apiRequest(credentialsPath, { method: 'POST' });
+      setItems((current) => [...current, { id: created.id }]);
       setNewKey(created);
     } catch (error) {
       setMessage(error.message);
@@ -41,14 +39,15 @@ export default function RuleCredentials({ domainId, rule, authMode }) {
     }
   }
 
-  async function deleteKey(key) {
+  async function deleteCredential(item) {
     setBusy(true);
     setMessage('');
     try {
-      await apiRequest(`${keysPath}/${encodeURIComponent(key.id)}`, { method: 'DELETE' });
-      setKeys((current) => current.filter((item) => item.id !== key.id));
-      if (newKey?.id === key.id) setNewKey(null);
-      setMessage('Clave eliminada.');
+      await apiRequest(`${credentialsPath}/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
+      setItems((current) => current.filter((entry) => entry.id !== item.id));
+      if (newKey?.id === item.id) setNewKey(null);
+      if (editingUser?.id === item.id) setEditingUser(null);
+      setMessage(isApiKey ? 'Clave eliminada.' : 'Usuario eliminado.');
     } catch (error) {
       setMessage(error.message);
     } finally {
@@ -56,7 +55,7 @@ export default function RuleCredentials({ domainId, rule, authMode }) {
     }
   }
 
-  function handleUserSubmit(event) {
+  async function handleUserSubmit(event) {
     event.preventDefault();
     const input = event.currentTarget.elements.namedItem('resource-username');
     const username = input.value.trim();
@@ -73,7 +72,23 @@ export default function RuleCredentials({ domainId, rule, authMode }) {
       return;
     }
 
-    setMessage(editingUser.id ? 'Guardar usuarios aún no está disponible.' : 'Crear usuarios aún no está disponible.');
+    const password = event.currentTarget.elements.namedItem('resource-password').value;
+    setBusy(true);
+    setMessage('');
+    try {
+      const saved = await apiRequest(editingUser.id ? `${credentialsPath}/${encodeURIComponent(editingUser.id)}` : credentialsPath, {
+        method: editingUser.id ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      setItems((current) => editingUser.id ? current.map((user) => user.id === saved.id ? saved : user) : [...current, saved]);
+      setEditingUser(null);
+      setMessage('Usuario guardado.');
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -83,7 +98,7 @@ export default function RuleCredentials({ domainId, rule, authMode }) {
         {isApiKey ? (
           <button type="button" disabled={busy || loading || Boolean(loadError)} onClick={createKey} className="text-link text-sm font-medium disabled:opacity-50">{busy ? 'Procesando…' : '+ Crear clave'}</button>
         ) : (
-          <button type="button" onClick={() => { setEditingUser({ id: null, username: '' }); setMessage(''); }} className="text-link text-sm font-medium">+ Agregar usuario</button>
+          <button type="button" disabled={busy || loading || Boolean(loadError)} onClick={() => { setEditingUser({ id: null, username: '' }); setMessage(''); }} className="text-link text-sm font-medium disabled:opacity-50">+ Agregar usuario</button>
         )}
       </div>
 
@@ -100,7 +115,7 @@ export default function RuleCredentials({ domainId, rule, authMode }) {
       )}
 
       {loading ? (
-        <p role="status" className="mt-5 text-sm text-muted">Cargando claves…</p>
+        <p role="status" className="mt-5 text-sm text-muted">{isApiKey ? 'Cargando claves…' : 'Cargando usuarios…'}</p>
       ) : loadError ? (
         <p role="alert" className="form-message mt-5">{loadError}</p>
       ) : items.length === 0 ? (
@@ -111,7 +126,7 @@ export default function RuleCredentials({ domainId, rule, authMode }) {
             <li key={item.id} className="flex flex-wrap items-center justify-between gap-4 p-4">
               <span className="break-all font-mono text-sm font-medium">{isApiKey ? item.id : item.username}</span>
               <div className="flex items-center gap-4 text-sm">
-                {!isApiKey && <button type="button" onClick={() => { setEditingUser(item); setMessage(''); }} aria-label={`Editar usuario ${item.username}`} className="text-link">Editar</button>}
+                {!isApiKey && <button type="button" disabled={busy} onClick={() => { setEditingUser(item); setMessage(''); }} aria-label={`Editar usuario ${item.username}`} className="text-link disabled:opacity-50">Editar</button>}
                 <button type="button" disabled={busy} onClick={() => { setDeleting({ id: item.id, name: isApiKey ? item.id : item.username }); setMessage(''); }} aria-label={`Eliminar ${isApiKey ? 'clave' : 'usuario'} ${isApiKey ? item.id : item.username}`} className="rounded text-red-700 hover:underline disabled:opacity-50">Eliminar</button>
               </div>
             </li>
@@ -128,7 +143,7 @@ export default function RuleCredentials({ domainId, rule, authMode }) {
           aria-labelledby="user-form-title"
         >
           <h3 id="user-form-title" className="font-semibold">{editingUser.id ? 'Editar usuario' : 'Agregar usuario'}</h3>
-          <div className="grid items-start gap-5 md:grid-cols-2">
+          <fieldset disabled={busy} className="grid items-start gap-5 md:grid-cols-2">
             <div>
               <label htmlFor="resource-username" className="field-label">Nombre de usuario</label>
               <input id="resource-username" name="resource-username" type="text" autoComplete="off" defaultValue={editingUser.username} required className="field-input" />
@@ -137,10 +152,10 @@ export default function RuleCredentials({ domainId, rule, authMode }) {
               <PasswordField id="resource-password" label={editingUser.id ? 'Nueva contraseña' : 'Contraseña'} autoComplete="new-password" required={!editingUser.id} />
               {editingUser.id && <p className="mt-2 text-xs text-muted">Déjala vacía para conservar la contraseña actual.</p>}
             </div>
-          </div>
+          </fieldset>
           <div className="flex justify-end gap-3">
-            <button type="button" onClick={() => { setEditingUser(null); setMessage(''); }} className="rounded border border-line bg-surface px-4 py-2.5 text-sm font-medium hover:bg-background">Cancelar usuario</button>
-            <button type="submit" className="button-primary">{editingUser.id ? 'Guardar usuario' : 'Agregar usuario'}</button>
+            <button type="button" disabled={busy} onClick={() => { setEditingUser(null); setMessage(''); }} className="rounded border border-line bg-surface px-4 py-2.5 text-sm font-medium hover:bg-background disabled:opacity-50">Cancelar usuario</button>
+            <button type="submit" disabled={busy} className="button-primary">{busy ? 'Guardando…' : editingUser.id ? 'Guardar usuario' : 'Agregar usuario'}</button>
           </div>
         </form>
       )}
@@ -151,10 +166,10 @@ export default function RuleCredentials({ domainId, rule, authMode }) {
         <DeleteDialog
           title={`¿Eliminar ${isApiKey ? 'clave' : 'usuario'}?`}
           name={deleting.name}
-          description={isApiKey ? 'La clave dejará de funcionar cuando las cachés actualicen su configuración.' : 'Al eliminarlo, este usuario dejará de tener acceso a la regla.'}
+          description={isApiKey ? 'La clave dejará de funcionar cuando las cachés actualicen su configuración.' : 'Se eliminará el usuario de esta regla.'}
           confirmLabel={`Eliminar ${isApiKey ? 'clave' : 'usuario'}`}
           onClose={() => setDeleting(null)}
-          onConfirm={() => isApiKey ? deleteKey(deleting) : setMessage('Eliminar usuarios aún no está disponible.')}
+          onConfirm={() => deleteCredential(deleting)}
         />
       )}
     </section>

@@ -1,6 +1,6 @@
 # UI
 
-Panel con React, Vite y Tailwind CSS. El registro, inicio y cierre de sesión usan Firebase Authentication. Los dominios, las reglas de URL y las API keys están conectados a la API y Firestore. Los usuarios de recursos siguen pendientes.
+Panel con React, Vite y Tailwind CSS. El registro, inicio y cierre de sesión usan Firebase Authentication. Los dominios, las reglas de URL, las API keys y los usuarios de recursos están conectados a la API y Firestore.
 
 ## Ejecutar
 
@@ -43,7 +43,9 @@ El detalle del dominio muestra su servidor de origen. Si fue creado antes de agr
 
 Desde el detalle se pueden agregar, editar y eliminar reglas de URL. El formulario guarda el patrón, el tamaño de caché, el mecanismo de acceso y los tipos de archivo con su TTL y política. Convierte MB a bytes al guardar. Después vuelve a la lista y consulta las reglas guardadas. Para eliminar una regla se pide confirmación.
 
-En **Editar regla**, si el acceso guardado es por API key, se pueden crear y eliminar claves. Una clave nueva se muestra una sola vez para copiarla; **Ocultar clave** retira su valor de la pantalla. La lista muestra solo los identificadores. La eliminación pide confirmación y llega a las cachés cuando actualizan su configuración. Si se cambia el mecanismo de acceso, hay que guardar la regla antes de administrar sus claves o usuarios. Los usuarios de recursos siguen pendientes.
+En **Editar regla**, si el acceso guardado es por API key, se pueden crear y eliminar claves. Una clave nueva se muestra una sola vez para copiarla; **Ocultar clave** retira su valor de la pantalla. La lista muestra solo los identificadores. La eliminación pide confirmación y llega a las cachés cuando actualizan su configuración. Si se cambia el mecanismo de acceso, hay que guardar la regla antes de administrar sus claves o usuarios.
+
+Si el acceso guardado es **Usuario y contraseña**, se pueden agregar, editar y eliminar los usuarios de esa regla. Al editar se puede cambiar el nombre; dejar la contraseña vacía conserva la actual. La lista muestra solo los nombres y la eliminación pide confirmación. Las contraseñas se envían a la API para guardar su hash y no se vuelven a mostrar.
 
 `#/acceso-recurso` es el formulario para usuarios de recursos y permanece público. Todavía falta conectarlo con la API de acceso a las cachés; no usa la cuenta del panel.
 
@@ -60,6 +62,8 @@ Para probar dominios, agregar `apache.local` con origen `http://apache-apache` y
 Para probar reglas en ese dominio, agregar `/prueba/*` con 0.5 MB, tipo `html`, TTL de 60 segundos, política `LRU` y acceso por API key. Guardar, recargar y abrir **Editar**: los datos deben conservarse. Cambiar el TTL y guardar debe actualizar la misma regla. Si se elimina una regla de prueba desde su confirmación, debe desaparecer de la lista también al recargar.
 
 Para probar las claves, abrir **Editar regla → Crear clave**, copiar el valor y ocultarlo. Al recargar debe quedar solo su identificador. Eliminar esa clave de prueba desde la confirmación y recargar: ya no debe aparecer.
+
+Para probar usuarios, guardar una regla con acceso por **Usuario y contraseña**. Agregar un usuario de prueba y recargar: debe conservarse su nombre. Editarlo con contraseña vacía debe conservar la anterior; escribir una nueva debe reemplazarla. Probar también un nombre repetido y la eliminación desde su confirmación. El login con ese usuario se conectará en el siguiente paso.
 
 ## Referencias
 

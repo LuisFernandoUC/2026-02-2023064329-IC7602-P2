@@ -318,15 +318,16 @@ La API incluye `GET /api/health` y estos grupos de rutas:
 
 - **Dominios** (`/api/domains`): listado y registro. Verifican la sesión con Firebase Authentication y usan el UID de la cuenta como propietario. Al registrar un dominio se pide el servidor de origen (`originUrl`), que debe ser una URL HTTP o HTTPS sin ruta.
 - **Reglas de URL** (`/api/domains/:domainId/rules`): crear, consultar, editar y eliminar, con permisos por propietario. Cada regla tiene ruta, tamaño máximo (no mayor que el del dominio), modo de autenticación (`api-key` o `password`) y, por tipo de archivo, TTL y política de reemplazo.
+- **Acceso por regla** (`/api/domains/:domainId/rules/:ruleId/keys` y `/users`): crear y eliminar API keys; crear, listar, editar y eliminar usuarios de recursos. Las contraseñas y las claves se guardan como hashes.
 - **Configuración para las cachés** (`GET /api/cache/config`): entrega a las cachés autenticadas los dominios verificados, sus reglas y los hashes de las API keys. Requiere `CACHE_API_TOKEN`, que debe coincidir con `ZC_CONFIG_TOKEN` en la caché.
 
 La conexión a Firestore se configura con variables de entorno. El comando `npm run check:firestore`, desde `api-node/`, permite comprobar el acceso.
 
-Siguen pendientes la verificación TXT, la eliminación de dominios, la administración de API keys y usuarios, y el login de recursos (`POST /api/cache/sessions`). Ver [api-node/README.md](api-node/README.md) y [Docs/Contratos/API-Node.md](Docs/Contratos/API-Node.md).
+Siguen pendientes la verificación TXT, la eliminación de dominios y el login de recursos (`POST /api/cache/sessions`). Ver [api-node/README.md](api-node/README.md) y [Docs/Contratos/API-Node.md](Docs/Contratos/API-Node.md).
 
 ### 8.6 UI
 
-La UI usa React, Vite y Tailwind CSS. El registro, inicio y cierre de sesión están conectados a Firebase Authentication. Los dominios (con su servidor de origen) y las reglas de URL usan la API y Firestore; las reglas se pueden agregar, editar y eliminar. La verificación TXT, la eliminación de dominios, las credenciales y el formulario de acceso a recursos siguen pendientes. Ver [ui/README.md](ui/README.md).
+La UI usa React, Vite y Tailwind CSS. El registro, inicio y cierre de sesión están conectados a Firebase Authentication. Los dominios (con su servidor de origen), las reglas de URL, las API keys y los usuarios de recursos usan la API y Firestore. Desde la edición de una regla se administran sus claves o usuarios. La verificación TXT, la eliminación de dominios y el formulario de acceso a recursos siguen pendientes. Ver [ui/README.md](ui/README.md).
 
 ### 8.7 Automatización
 
@@ -371,7 +372,7 @@ Recomendación del enunciado: usar `nslookup` para el DNS Interceptor y Postman/
 | ------------------------ | -------- | -------------------------- | ----- |
 | DNS Interceptor          | Respuestas A según el país (IP to Country y EDNS Client Subnet), comodines, zona por defecto, reenvío al DNS externo, despliegue con Helm que obtiene solo las IPs de las cachés, pruebas unitarias | Solo IPv4 y UDP. La lista de dominios es fija en `values.yaml` y no se sincroniza con los dominios verificados en la UI. Con `NodePort` se pierde la IP real del cliente | Ver [dns-interceptor/README.md](dns-interceptor/README.md#qué-funciona-y-qué-no) |
 | Zonal Cache              | Servidor TCP con SSL termination, caché en disco con límites por dominio y por URL, LRU/LFU/FIFO/MRU/Random, TTL por tipo de archivo, `x-api-key`, verificación de sesiones JWT, redirección al login, orígenes HTTP y HTTPS, recarga de configuración, un despliegue por zona | La configuración desde Firebase está implementada en la caché, pero en la demostración se usa `values-local.yaml`, porque el API todavía no marca dominios como verificados. Sin keep-alive; no respeta `Vary` | Ver [zonal-cache/README.md](zonal-cache/README.md#9-estado) |
-| RestAPI Node.js / UI     | Registro, inicio y cierre de sesión con Firebase Authentication; registro y listado de dominios con servidor de origen; administración de reglas de URL; `GET /api/cache/config` para las cachés | Falta: verificación TXT, eliminación de dominios, crear y eliminar API keys, crear, modificar y eliminar usuarios, login de recursos (`POST /api/cache/sessions`), reglas sin autenticación y tipo de archivo `*` | Sin la verificación TXT, `/api/cache/config` devuelve una lista vacía. Ver [Docs/Integracion.md](Docs/Integracion.md#9-pendientes) |
+| RestAPI Node.js / UI     | Registro, inicio y cierre de sesión con Firebase Authentication; registro y listado de dominios con servidor de origen; administración de reglas, API keys y usuarios de recursos; `GET /api/cache/config` para las cachés | Falta: verificación TXT, eliminación de dominios, login de recursos (`POST /api/cache/sessions`), reglas sin autenticación y tipo de archivo `*` | Sin la verificación TXT, `/api/cache/config` devuelve una lista vacía. Ver [Docs/Integracion.md](Docs/Integracion.md#9-pendientes) |
 | Rest API / Apache Server | GET, POST, PUT y DELETE en Java; HTML en Apache; ambos con Dockerfile, Helm y Docker Compose, probados a través de la caché | Los datos de la Rest API Java viven en memoria y se pierden al reiniciar el pod | — |
 
 ## 11. Conclusiones

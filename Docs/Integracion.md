@@ -237,7 +237,7 @@ El DNS Interceptor se instala **después** de la caché, porque busca la IP de l
 
 ## 6. Cambios necesarios en el API Node.js y la UI
 
-El endpoint `GET /api/cache/config`, el campo `originUrl`, las operaciones de reglas de URL y las API keys ya están implementados. El login de recursos y la administración de sus usuarios siguen pendientes.
+El endpoint `GET /api/cache/config`, el campo `originUrl`, las operaciones de reglas de URL, las API keys y los usuarios de recursos ya están implementados. El login de recursos sigue pendiente.
 
 ### 6.1 Variables de entorno nuevas del API
 
@@ -266,7 +266,7 @@ domains/{domainId}              ownerId, name, maxCacheBytes, verified, verifica
   - Los `passwordHash` nunca salen del API.
 - **Unicidad:** el id del documento es `<uid>_<dominio>`, así que dos cuentas pueden registrar el mismo dominio. Solo una debería quedar con `verified: true`.
 
-Las reglas ya se pueden listar, crear, editar y eliminar desde la UI. La API comprueba el propietario y guarda solo sus campos de configuración bajo `domains/{domainId}/rules/{ruleId}`. La eliminación borra también sus subcolecciones. Las API keys se crean y eliminan desde la edición de la regla; solo su hash queda guardado y el listado devuelve los IDs. El registro de usuarios aún no está conectado.
+Las reglas ya se pueden listar, crear, editar y eliminar desde la UI. La API comprueba el propietario y guarda solo sus campos de configuración bajo `domains/{domainId}/rules/{ruleId}`. La eliminación borra también sus subcolecciones. Las API keys se crean y eliminan desde la edición de la regla; solo su hash queda guardado y el listado devuelve los IDs. En las reglas con acceso por contraseña se pueden crear, editar y eliminar usuarios. Se guarda `username` y `passwordHash`; el panel recibe solo el ID y el nombre.
 
 ### 6.3 Endpoints para las cachés
 
@@ -372,7 +372,7 @@ import cacheRouter from './cache.js';
 app.use('/api/cache', cacheRouter);
 ```
 
-Al crear un usuario de recurso (`POST /api/rules/:ruleId/users`), la contraseña se guarda así:
+Al crear un usuario de recurso (`POST /api/domains/:domainId/rules/:ruleId/users`), la contraseña se guarda con este formato. La implementación usa la versión asíncrona de scrypt:
 
 ```js
 const salt = randomBytes(16);
@@ -515,7 +515,6 @@ helm upgrade --install zonal-cache deploy/helm/zonal-cache \
 | Pendiente | Responsable |
 | --- | --- |
 | Verificación TXT del dominio (marcar `verified: true`); sin ella `/api/cache/config` devuelve una lista vacía | Nicole |
-| Crear y eliminar API keys (`keys/{id}.keyHash`) y crear, modificar y eliminar usuarios | Nicole |
 | Aceptar reglas sin autenticación (`none`) y el tipo de archivo `*` en el API y la UI | Nicole |
 | Eliminar dominios | Nicole |
 | Desplegar el API y la UI en Vercel y conectar la caché con `config.url` | Nicole y Fabricio |

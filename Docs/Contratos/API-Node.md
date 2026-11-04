@@ -2,7 +2,7 @@
 
 **Responsable:** Nicole Parra Valverde
 
-**Estado:** implementados `/api/health`, `GET /api/domains`, `POST /api/domains`, la administración de reglas y API keys, y `GET /api/cache/config`. Las demás rutas son propuestas.
+**Estado:** implementados `/api/health`, `GET /api/domains`, `POST /api/domains`, la administración de reglas, API keys y usuarios de recursos, y `GET /api/cache/config`. Las demás rutas son propuestas.
 
 Basado en las páginas 4 y 5 del [enunciado](../Proyectos-2026-02-IC7602-P2.pdf).
 
@@ -72,10 +72,10 @@ El registro, inicio y cierre de sesión del panel usan Firebase Authentication c
 | POST | `/api/domains/:domainId/rules` | Crear una regla de URL. Implementada. |
 | PUT | `/api/domains/:domainId/rules/:ruleId` | Modificar una regla de URL. Implementada. |
 | DELETE | `/api/domains/:domainId/rules/:ruleId` | Eliminar la regla y sus subcolecciones. Implementada. |
-| GET | `/api/rules/:ruleId/users` | Listar usuarios de acceso, sin contraseñas ni hashes. |
-| POST | `/api/rules/:ruleId/users` | Crear un usuario de acceso. |
-| PUT | `/api/rules/:ruleId/users/:userId` | Modificar el usuario o su contraseña. |
-| DELETE | `/api/rules/:ruleId/users/:userId` | Eliminar el usuario y cerrar sus sesiones. |
+| GET | `/api/domains/:domainId/rules/:ruleId/users` | Listar usuarios de acceso, sin contraseñas ni hashes. Implementada. |
+| POST | `/api/domains/:domainId/rules/:ruleId/users` | Crear un usuario de acceso. Implementada. |
+| PUT | `/api/domains/:domainId/rules/:ruleId/users/:userId` | Modificar el usuario o su contraseña. Implementada. |
+| DELETE | `/api/domains/:domainId/rules/:ruleId/users/:userId` | Eliminar un usuario de acceso. Implementada. |
 | GET | `/api/domains/:domainId/rules/:ruleId/keys` | Listar los identificadores de las API keys. Implementada. |
 | POST | `/api/domains/:domainId/rules/:ruleId/keys` | Crear una API key y devolver su valor una sola vez. Implementada. |
 | DELETE | `/api/domains/:domainId/rules/:ruleId/keys/:keyId` | Eliminar una API key. Implementada. |
@@ -91,6 +91,8 @@ Las reglas se guardan en `domains/{domainId}/rules/{ruleId}`. Todas sus operacio
 El listado responde `200`, el registro `201`, la edición `200` y la eliminación `204`. Datos inválidos responden `400`; un dominio ajeno o inexistente, o una regla inexistente, responde `404`. Un fallo de Firestore responde `503`. La edición conserva el ID y las subcolecciones; la eliminación usa `recursiveDelete` para no dejarlas huérfanas.
 
 Las API keys usan los mismos permisos del dominio. Se generan en el servidor y solo se guarda `keyHash` en `domains/{domainId}/rules/{ruleId}/keys/{keyId}`. La creación responde `201` con `{ id, apiKey }`; el listado devuelve únicamente los IDs y la eliminación responde `204`. Crear una clave requiere que la regla esté guardada con `authMode: "api-key"`; de lo contrario responde `409`. Las respuestas usan `Cache-Control: no-store`.
+
+Los usuarios se guardan en `domains/{domainId}/rules/{ruleId}/users/{userId}`, con los mismos permisos. Crear o editar requiere que la regla esté guardada con `authMode: "password"`. El cuerpo recibe `username` y `password`; al editar, omitir la contraseña o dejarla vacía conserva la actual. El nombre se recorta y se comprueba que no esté repetido en esa regla; un duplicado responde `409`. La contraseña se guarda como `scrypt$<sal hexadecimal>$<hash hexadecimal>`, con una sal aleatoria por contraseña. Las respuestas solo incluyen `id` y `username`: `201` al crear, `200` al listar o editar y `204` al eliminar. El login y las sesiones siguen pendientes.
 
 La comprobación del propietario se agregará al implementar las rutas restantes del panel.
 

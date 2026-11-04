@@ -1,10 +1,12 @@
 import express from 'express';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, scrypt } from 'node:crypto';
+import { promisify } from 'node:util';
 import { requireAuth } from './auth.js';
 import { getDb } from './firestore.js';
 
 const router = express.Router({ mergeParams: true });
 const policies = ['LRU', 'LFU', 'FIFO', 'MRU', 'Random'];
+const derivePassword = promisify(scrypt);
 
 router.use(requireAuth, async (req, res, next) => {
   if (req.params.domainId.includes('/')) {
@@ -100,7 +102,7 @@ router.delete('/:ruleId', async (req, res) => {
   }
 });
 
-router.use('/:ruleId/keys', async (req, res, next) => {
+router.use(['/:ruleId/keys', '/:ruleId/users'], async (req, res, next) => {
   res.set('Cache-Control', 'no-store');
   if (req.params.ruleId.includes('/')) return res.status(404).json({ error: 'No se encontró esta regla en el dominio.' });
   try {
@@ -147,6 +149,65 @@ router.delete('/:ruleId/keys/:keyId', async (req, res) => {
     res.status(204).end();
   } catch {
     res.status(503).json({ error: 'No se pudo eliminar la clave. Intenta de nuevo.' });
+  }
+});
+
+router.get('/:ruleId/users', async (req, res) => {
+  try {
+    const users = await req.ruleRef.collection('users').get();
+    res.json(users.docs.map((user) => ({ id: user.id, username: user.data().username })));
+  } catch {
+    res.status(503).json({ error: 'No se pudieron cargar los usuarios. Intenta de nuevo.' });
+  }
+});
+
+async function saveUser(req, res) {
+  if (req.params.userId?.includes('/')) return res.status(404).json({ error: 'No se encontró este usuario en la regla.' });
+  if (req.ruleData.authMode !== 'password') {
+    return res.status(409).json({ error: 'Guarda la regla con acceso por usuario y contraseña antes de administrar usuarios.' });
+  }
+  const username = typeof req.body?.username === 'string' ? req.body.username.trim() : '';
+  const password = req.body?.password;
+  if (!username) return res.status(400).json({ error: 'Escribe un nombre de usuario.' });
+  if ((password !== undefined && typeof password !== 'string') || (req.method === 'POST' && !password)) {
+    return res.status(400).json({ error: 'Escribe una contraseña para crear el usuario; al editar puedes dejarla vacía.' });
+  }
+  try {
+    const users = req.ruleRef.collection('users');
+    const ref = req.params.userId ? users.doc(req.params.userId) : users.doc();
+    if (req.method === 'PUT' && !(await ref.get()).exists) {
+      return res.status(404).json({ error: 'No se encontró este usuario en la regla.' });
+    }
+    const matching = await users.where('username', '==', username).get();
+    if (matching.docs.some((user) => user.id !== ref.id)) {
+      return res.status(409).json({ error: 'Este nombre de usuario ya existe en la regla.' });
+    }
+    const data = { username };
+    if (password) {
+      const salt = randomBytes(16);
+      const hash = await derivePassword(password, salt, 64);
+      data.passwordHash = `scrypt$${salt.toString('hex')}$${hash.toString('hex')}`;
+    }
+    if (req.method === 'POST') await ref.create(data);
+    else await ref.update(data);
+    res.status(req.method === 'POST' ? 201 : 200).json({ id: ref.id, username });
+  } catch {
+    res.status(503).json({ error: 'No se pudo guardar el usuario. Intenta de nuevo.' });
+  }
+}
+
+router.post('/:ruleId/users', express.json(), saveUser);
+router.put('/:ruleId/users/:userId', express.json(), saveUser);
+
+router.delete('/:ruleId/users/:userId', async (req, res) => {
+  if (req.params.userId.includes('/')) return res.status(404).json({ error: 'No se encontró este usuario en la regla.' });
+  try {
+    const ref = req.ruleRef.collection('users').doc(req.params.userId);
+    if (!(await ref.get()).exists) return res.status(404).json({ error: 'No se encontró este usuario en la regla.' });
+    await ref.delete();
+    res.status(204).end();
+  } catch {
+    res.status(503).json({ error: 'No se pudo eliminar el usuario. Intenta de nuevo.' });
   }
 });
 

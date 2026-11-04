@@ -84,7 +84,7 @@ El listado devuelve el origen guardado. Los dominios creados antes de este campo
 
 Responde `201` al guardar, `400` si los datos no son válidos, `409` si el dominio ya está en esa cuenta y `503` si falla Firestore. El límite debe ser un entero positivo de bytes y el nombre debe permitir formar un registro TXT de hasta 253 caracteres.
 
-La eliminación de dominios, la consulta del TXT y los usuarios de recursos siguen pendientes. `apache.local` sirve para probar el guardado local; verificar la propiedad requiere poder modificar el DNS que consulta la API.
+La eliminación de dominios y la consulta del TXT siguen pendientes. `apache.local` sirve para probar el guardado local; verificar la propiedad requiere poder modificar el DNS que consulta la API.
 
 ## Reglas de URL
 
@@ -101,7 +101,7 @@ El cuerpo de creación o edición usa bytes y segundos:
 {"pathPattern":"/prueba/*","maxCacheBytes":524288,"authMode":"api-key","fileTypes":[{"extension":"html","ttlSeconds":60,"replacementPolicy":"LRU"}]}
 ```
 
-El patrón empieza con `/` y puede incluir comodines. El tamaño es un entero positivo que no supera el límite del dominio. Debe haber al menos una extensión, sin repeticiones, con TTL entero mayor o igual que cero y política `LRU`, `LFU`, `FIFO`, `MRU` o `Random`. Se acepta `api-key` o `password` como mecanismo de acceso. La administración de usuarios de recursos aún está pendiente.
+El patrón empieza con `/` y puede incluir comodines. El tamaño es un entero positivo que no supera el límite del dominio. Debe haber al menos una extensión, sin repeticiones, con TTL entero mayor o igual que cero y política `LRU`, `LFU`, `FIFO`, `MRU` o `Random`. Se acepta `api-key` o `password` como mecanismo de acceso.
 
 Las reglas se guardan en `domains/{domainId}/rules/{ruleId}` y pueden configurarse antes de verificar el dominio. Una edición conserva su ID y las subcolecciones. Una eliminación usa `recursiveDelete`; no se puede deshacer desde la UI.
 
@@ -119,6 +119,19 @@ Las rutas `/api/domains/:domainId/rules/:ruleId/keys` comprueban la sesión, el 
 
 La creación usa 24 bytes aleatorios en base64url y guarda únicamente su hash SHA-256 en la subcolección `keys` de la regla. El valor original se entrega solo al crearla. La regla debe estar guardada con `authMode: "api-key"`; si no, la creación responde `409`. Las respuestas usan `Cache-Control: no-store`. Una clave eliminada deja de funcionar cuando la caché vuelve a consultar su configuración.
 
+## Usuarios de recursos
+
+Las rutas `/api/domains/:domainId/rules/:ruleId/users` usan los mismos permisos del dominio y la regla:
+
+- `GET` lista los usuarios como `{ id, username }`.
+- `POST` recibe `{ username, password }` y crea un usuario con estado `201`.
+- `PUT /:userId` cambia el nombre o la contraseña y responde `200`. Una contraseña vacía u omitida conserva la anterior.
+- `DELETE /:userId` elimina al usuario y responde `204`.
+
+Crear y editar requiere que la regla tenga `authMode: "password"`. El nombre se recorta y se consulta para rechazar duplicados en esa regla con `409`; el mismo nombre puede usarse en otra regla. La API guarda solo el nombre y `passwordHash` en la subcolección `users`. Usa scrypt con una sal aleatoria de 16 bytes y un hash de 64 bytes, en el formato acordado en `Docs/Integracion.md`. No devuelve contraseñas ni hashes al panel o a la caché. Las respuestas usan `Cache-Control: no-store`.
+
+Estos usuarios son distintos de las cuentas de Firebase Authentication. Su formulario de login y las sesiones todavía no están conectados.
+
 ## Configuración para las cachés
 
 `GET /api/cache/config` requiere `Authorization: Bearer <CACHE_API_TOKEN>`. Este token es propio de la caché; no usa la sesión de una cuenta del panel ni la API key de un cliente.
@@ -129,7 +142,7 @@ La respuesta no incluye propietarios, tokens TXT, usuarios, contraseñas ni hash
 
 Si no hay dominios verificados, devuelve `200` y `{ "domains": [] }`. Un token ausente o incorrecto responde `401`. Si falta `CACHE_API_TOKEN`, responde `503`.
 
-Los usuarios de recursos y la verificación TXT siguen pendientes. Todavía falta completar esos pasos y conectar el despliegue de la caché con la API.
+La verificación TXT y el login de recursos siguen pendientes. Todavía falta completar esos pasos y conectar el despliegue de la caché con la API.
 
 Agregar `CACHE_API_TOKEN` a `.env` y usar el mismo valor como `ZC_CONFIG_TOKEN` en la caché. Se puede generar un valor con `openssl rand -hex 32`. No subirlo al repositorio ni ponerlo en variables `VITE_`.
 
@@ -149,7 +162,7 @@ Debe responder con HTTP `200` y este JSON:
 
 Una ruta inexistente responde con HTTP `404` y `{"error":"Ruta no encontrada"}`. Si se cambia `HOST` o `PORT`, ajustar la dirección del comando.
 
-Para probar la autenticación, los dominios, las reglas, las API keys y la configuración de las cachés:
+Para probar la autenticación, los dominios, las reglas, las API keys, los usuarios de recursos y la configuración de las cachés:
 
 ```bash
 npm test
@@ -160,6 +173,8 @@ Las pruebas cubren autenticación, validaciones, duplicados, separación de cuen
 Las pruebas de reglas cubren el guardado y la consulta, la edición, la eliminación de subcolecciones, los permisos por propietario, los datos inválidos y la entrega de una regla guardada a `/api/cache/config`.
 
 Las de API keys comprueban la creación, el listado sin valores ni hashes, la eliminación, los permisos y los fallos de Firestore. También verifican que la configuración de la caché incluya el hash guardado y deje de entregarlo al eliminar la clave.
+
+Las de usuarios comprueban el hash de la contraseña, el listado sin datos secretos, la edición con y sin cambio de contraseña, los duplicados por regla, la eliminación, los permisos y los fallos de Firestore.
 
 Con la API en ejecución, consultar el endpoint usando el valor de `CACHE_API_TOKEN` de `.env`:
 
@@ -184,4 +199,5 @@ Reemplazar `<CACHE_API_TOKEN>` por el valor local. Debe responder `200` con la l
 - [Escritura de datos de Firestore](https://firebase.google.com/docs/firestore/manage-data/add-data): creación y actualización de reglas.
 - [Borrado recursivo en Firestore](https://googleapis.dev/nodejs/firestore/latest/Firestore.html#recursiveDelete): eliminación de una regla y sus subcolecciones.
 - [Comparación de tokens en Node.js](https://nodejs.org/docs/latest-v24.x/api/crypto.html#cryptotimingsafeequala-b): uso de `timingSafeEqual`.
+- [scrypt en Node.js](https://nodejs.org/docs/latest-v24.x/api/crypto.html#cryptoscryptpassword-salt-keylen-options-callback): hash de contraseñas con sal aleatoria.
 - [Subir claves de cuentas de servicio](https://docs.cloud.google.com/iam/docs/keys-upload): registro del certificado público en Google Cloud.
