@@ -119,6 +119,26 @@ ZC_CACHE_DIR/
 - Si un objeto no cabe, se expulsan entradas de su URL según la política. Si lo que se excede es el límite del dominio y esa URL está vacía, se expulsa de la URL del dominio que más espacio ocupa.
 - Un objeto más grande que el límite no se guarda, para no vaciar la caché en vano.
 - Si la UI reduce un límite, el exceso se expulsa en el siguiente acceso a esa URL.
+- Un solo mutex protege el índice, porque cada conexión se atiende en su propio hilo.
+
+### Encabezados hacia el origen
+
+[src/proxy.c](src/proxy.c) (`build_origin_headers`) copia los encabezados del cliente, excepto:
+
+| Se elimina | Por qué |
+| --- | --- |
+| Hop-by-hop (`Connection`, `Keep-Alive`, `Transfer-Encoding`, ...) | Solo valen para un salto |
+| `Host`, `Content-Length`, `Expect` | libcurl los arma para el origen |
+| `Accept-Encoding` | Así el origen responde sin comprimir y el cuerpo guardado sirve para cualquier cliente |
+| `x-api-key` | La clave es para la caché; no se filtra al origen |
+| `Authorization: Bearer ...` en reglas de usuario/contraseña | Era el JWT de la caché |
+| Cookie `zc_session` | Las demás cookies sí pasan |
+
+Se agregan `X-Forwarded-For` (IP del cliente), `X-Forwarded-Proto` (`http` o `https`), `X-Forwarded-Host` y `X-Zonal-Cache-Hop: 1`, que permite detectar bucles. libcurl no sigue redirecciones del origen: las devuelve al cliente.
+
+### Configuración compartida entre hilos
+
+[src/config_store.c](src/config_store.c) guarda la configuración vigente con un conteo de referencias. Cada petición toma una referencia al empezar y la suelta al terminar. Cuando llega una configuración nueva, el puntero se reemplaza de una vez, y la anterior se libera cuando termina la última petición que la usaba. Si la descarga o el JSON fallan, se conserva la configuración anterior.
 
 ## 3. Variables de entorno
 
@@ -147,7 +167,7 @@ Se requiere `ZC_CONFIG_URL` o `ZC_CONFIG_FILE`.
 
 ## 4. Contrato con el API Node.js y la UI
 
-> Propuesta para T-01. Si cambia, hay que actualizar [src/site_config.c](src/site_config.c) y [src/auth.c](src/auth.c).
+> `GET /api/cache/config` ya está implementado en el API ([api-node/cache.js](../api-node/cache.js)). Si el contrato cambia, hay que actualizar [src/site_config.c](src/site_config.c) y [src/auth.c](src/auth.c).
 
 ### 4.1 Configuración: `GET ZC_CONFIG_URL`
 
@@ -216,6 +236,13 @@ También se aceptan los nombres de campos del borrador del API Node.js ([Docs/Co
 
 Solo se guardan respuestas `200` a `GET` cuyo tipo de archivo tiene TTL y que el origen no marcó con `Cache-Control: no-store` o `private`. El resto pasa directo al origen (`X-Cache: BYPASS`).
 
+**Diferencias actuales con el API Node.js** ([api-node/rules.js](../api-node/rules.js)):
+
+- El API solo acepta `authMode` `api-key` o `password`. La caché también soporta `none`, pero desde la UI todavía no se puede crear una regla pública. Una ruta sin regla se sirve, pero como `BYPASS`, sin guardarse.
+- El API no acepta el tipo de archivo `*`, así que hay que listar cada extensión. Las rutas sin extensión (`/`, `/api/items`) cuentan como `html`.
+- La UI define una política por tipo de archivo; la caché aplica la del primer tipo, porque el límite de tamaño es de la regla completa.
+- `ttlSeconds: 0` significa "no guardar ese tipo".
+
 Las API keys se guardan como hash: el API nunca debe mandar la clave en texto plano. En Node.js:
 
 ```js
@@ -277,6 +304,21 @@ curl -i -H "Host: example.com" http://localhost:8080/
 curl -i -H "Host: www.wikipedia.org" http://localhost:8080/
 ```
 
+Resultados obtenidos el 03/11/2026:
+
+| Petición | Resultado |
+| --- | --- |
+| Apache, 1.ª y 2.ª | `200`, `X-Cache: MISS` y luego `HIT` |
+| HTTPS en el 8443 | `200` |
+| `/api/x.html` sin clave | `401` |
+| `/api/x.html` con `clave-valida` | `404`: la clave se acepta, pero `dev/html/api/x.html` no existe |
+| `/privado/secreto.html` | `302` al login con `domain`, `path` y `callback` |
+| example.com y wikipedia, 1.ª y 2.ª | `200`, MISS y luego HIT |
+
+Con wikipedia aparecen dos encabezados: `x-cache` en minúsculas es del CDN de Wikipedia y `X-Cache` es el de la caché zonal.
+
+El contenedor `certs` genera el certificado autofirmado en `dev/certs/`, que está en `.gitignore`. La caché solo arranca si ese contenedor termina bien (`service_completed_successfully`).
+
 ### Compilación nativa (Linux)
 
 ```bash
@@ -310,11 +352,18 @@ El workflow [.github/workflows/zonal-cache.yml](../.github/workflows/zonal-cache
 
 El flujo completo se prueba sin red: [tests/test_proxy.c](tests/test_proxy.c) reemplaza el origen por una función falsa (`origin_fetch_fn`).
 
+Resultado actual: **98 pruebas, 0 fallidas**.
+
+### Pruebas de integración en Kubernetes
+
+Con los charts instalados, [deploy/test-k8s.sh](../deploy/test-k8s.sh) prueba la caché junto con el DNS Interceptor y los orígenes desde un pod del cluster. Cubre health por zona, MISS y luego HIT, independencia entre zonas, HTTPS, `x-api-key`, GET/POST/PUT/DELETE de la Rest API Java, y los errores `404` y `508`. Ver la [sección 6.6 del README principal](../README.md#66-verificar-que-todo-funciona).
+
 ## 7. Despliegue en Kubernetes (Helm)
 
 El chart está en [deploy/helm/zonal-cache](../deploy/helm/zonal-cache) y crea un Deployment y un Service por zona (`america`, `europa`, `asia` por defecto).
 
 ```bash
+# Con Kubernetes de Docker Desktop basta con docker build -t zonal-cache zonal-cache.
 # Con minikube: construir la imagen dentro del cluster
 minikube image build -t zonal-cache:latest ./zonal-cache
 
@@ -353,11 +402,12 @@ kubectl get svc -l app.kubernetes.io/name=zonal-cache   # IPs para el DNS Interc
 | TTL por tipo de archivo | Implementado |
 | Comodines en dominios y URLs | Implementado |
 | Autenticación `x-api-key` | Implementado |
-| Usuario y contraseña (login en la UI y sesión JWT) | Implementado en la caché; depende del API Node.js y la UI |
-| Configuración desde Firebase (vía API Node.js) con recarga periódica | Implementado en la caché; depende del endpoint del API Node.js |
-| Origen HTTP y HTTPS | Implementado |
-| Dockerfile, Docker Compose y Helm Chart | Implementado |
-| Pruebas unitarias | Implementado |
+| Usuario y contraseña (login en la UI y sesión JWT) | Implementado en la caché (redirección, callback, cookie, Bearer, logout). El login completo depende de `POST /api/cache/sessions`, pendiente en el API |
+| Configuración desde Firebase (vía API Node.js) con recarga periódica | Implementado en la caché, y `GET /api/cache/config` existe en el API. Mientras el API no marque dominios como verificados (TXT), las pruebas usan `config.inline` (`values-local.yaml`) |
+| Origen HTTP y HTTPS | Implementado y probado (Apache, Rest API Java, example.com, wikipedia) |
+| Dockerfile, Docker Compose y Helm Chart | Implementado y probado en Kubernetes de Docker Desktop |
+| Pruebas unitarias | 98 pruebas, 0 fallidas |
+| Pruebas de integración en Kubernetes | [deploy/test-k8s.sh](../deploy/test-k8s.sh) |
 
 ## 10. Créditos
 
