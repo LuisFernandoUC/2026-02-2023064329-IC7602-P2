@@ -316,18 +316,19 @@ Imagen `httpd:2.4-alpine` que sirve [apache/html/index.html](apache/html/index.h
 
 La API incluye `GET /api/health` y estos grupos de rutas:
 
-- **Dominios** (`/api/domains`): listado y registro. Verifican la sesión con Firebase Authentication y usan el UID de la cuenta como propietario. Al registrar un dominio se pide el servidor de origen (`originUrl`), que debe ser una URL HTTP o HTTPS sin ruta.
+- **Dominios** (`/api/domains`): listado, registro, verificación TXT y eliminación con sus subcolecciones. Verifican la sesión con Firebase Authentication y usan el UID de la cuenta como propietario. Al registrar un dominio se pide el servidor de origen (`originUrl`), que debe ser una URL HTTP o HTTPS sin ruta.
 - **Reglas de URL** (`/api/domains/:domainId/rules`): crear, consultar, editar y eliminar, con permisos por propietario. Cada regla tiene ruta, tamaño máximo (no mayor que el del dominio), modo de autenticación (`api-key` o `password`) y, por tipo de archivo, TTL y política de reemplazo.
 - **Acceso por regla** (`/api/domains/:domainId/rules/:ruleId/keys` y `/users`): crear y eliminar API keys; crear, listar, editar y eliminar usuarios de recursos. Las contraseñas y las claves se guardan como hashes.
 - **Configuración para las cachés** (`GET /api/cache/config`): entrega a las cachés autenticadas los dominios verificados, sus reglas y los hashes de las API keys. Requiere `CACHE_API_TOKEN`, que debe coincidir con `ZC_CONFIG_TOKEN` en la caché.
+- **Login de recursos** (`POST /api/cache/sessions`): valida el usuario de la regla y devuelve un JWT limitado a ese dominio y regla. La caché lo recibe en `/__zc/auth`, guarda su cookie y maneja el cierre en `/__zc/logout`.
 
 La conexión a Firestore se configura con variables de entorno. El comando `npm run check:firestore`, desde `api-node/`, permite comprobar el acceso.
 
-Siguen pendientes la verificación TXT, la eliminación de dominios y el login de recursos (`POST /api/cache/sessions`). Ver [api-node/README.md](api-node/README.md) y [Docs/Contratos/API-Node.md](Docs/Contratos/API-Node.md).
+Faltan el despliegue en Vercel y las pruebas del flujo completo con un dominio real y la caché configurada con la API. Ver [api-node/README.md](api-node/README.md) y [Docs/Contratos/API-Node.md](Docs/Contratos/API-Node.md).
 
 ### 8.6 UI
 
-La UI usa React, Vite y Tailwind CSS. El registro, inicio y cierre de sesión están conectados a Firebase Authentication. Los dominios (con su servidor de origen), las reglas de URL, las API keys y los usuarios de recursos usan la API y Firestore. Desde la edición de una regla se administran sus claves o usuarios. La verificación TXT, la eliminación de dominios y el formulario de acceso a recursos siguen pendientes. Ver [ui/README.md](ui/README.md).
+La UI usa React, Vite y Tailwind CSS. El registro, inicio y cierre de sesión están conectados a Firebase Authentication. Los dominios (con su servidor de origen), las reglas de URL, las API keys y los usuarios de recursos usan la API y Firestore. Desde la edición de una regla se administran sus claves o usuarios. La verificación TXT y la eliminación de dominios están conectadas a la API. El formulario de acceso a recursos recibe los datos de la caché y devuelve al usuario con su sesión. Ver [ui/README.md](ui/README.md).
 
 ### 8.7 Automatización
 
@@ -353,7 +354,7 @@ Resultados obtenidos el 03/11/2026 con Kubernetes de Docker Desktop y los cuatro
 | 4   | Sitio externo con **HTTPS**                         | Mismo entorno; `curl -i -H "Host: www.wikipedia.org" http://localhost:8080/` dos veces | `200`, MISS y luego HIT (la caché habla HTTPS con el origen) | Correcto |
 | 5   | Resolución DNS con geolocalización                  | `deploy/test-k8s.sh`, sección 2, o `dig @127.0.0.1 -p 30053 apache.p2.local +subnet=<subred>` | EE. UU. → america, España → europa, Japón → asia; comodín `*.cdn.p2.local`; `nslookup` sin subred → zona por defecto; google.com se reenvía | Correcto, también desde el equipo por el NodePort 30053 |
 | 6   | Autenticación con `x-api-key`                       | `deploy/test-k8s.sh`, sección 5 | Sin clave `401`, clave incorrecta `401`, `clave-valida` `200` | Correcto |
-| 7   | Autenticación con usuario y contraseña (sesión)     | Entorno Compose de la caché; `curl -i -H "Host: apache.local" http://localhost:8080/privado/secreto.html` | `302` al login de la UI con `domain`, `path` y `callback` | Correcto. El inicio de sesión completo depende de `POST /api/cache/sessions`, pendiente en el API. La verificación del JWT y la cookie se prueban en las pruebas unitarias (`proxy`, `auth`) |
+| 7   | Autenticación con usuario y contraseña (sesión)     | Entorno Compose de la caché; `curl -i -H "Host: apache.local" http://localhost:8080/privado/secreto.html` | `302` al login de la UI con `domain`, `path` y `callback` | Redirección probada. `POST /api/cache/sessions` y el formulario ya están conectados; falta probarlos con la caché desplegada y el secreto compartido. Las pruebas de API comprueban la firma y alcance del JWT; las de caché (`proxy`, `auth`) comprueban su verificación y la cookie |
 | 8   | Algoritmos de reemplazo (LRU, LFU, FIFO, MRU, Random) | `docker build --target test zonal-cache` o `deploy/test-k8s.sh --unit` | Cada política expulsa la víctima esperada | `98 pruebas, 0 fallidas` |
 | 9   | Límite de tamaño por dominio y por URL              | Igual que la #8 (suite `cache`) | No se superan los límites; un objeto más grande que el límite no se guarda | Correcto |
 | 10  | SSL termination                                     | `deploy/test-k8s.sh`, sección 4 | HTTPS `200` con MISS y luego HIT; certificado `CN=zonal-cache` | Correcto |
@@ -371,8 +372,8 @@ Recomendación del enunciado: usar `nslookup` para el DNS Interceptor y Postman/
 | Aspecto                  | Funciona | No funciona / limitaciones | Notas |
 | ------------------------ | -------- | -------------------------- | ----- |
 | DNS Interceptor          | Respuestas A según el país (IP to Country y EDNS Client Subnet), comodines, zona por defecto, reenvío al DNS externo, despliegue con Helm que obtiene solo las IPs de las cachés, pruebas unitarias | Solo IPv4 y UDP. La lista de dominios es fija en `values.yaml` y no se sincroniza con los dominios verificados en la UI. Con `NodePort` se pierde la IP real del cliente | Ver [dns-interceptor/README.md](dns-interceptor/README.md#qué-funciona-y-qué-no) |
-| Zonal Cache              | Servidor TCP con SSL termination, caché en disco con límites por dominio y por URL, LRU/LFU/FIFO/MRU/Random, TTL por tipo de archivo, `x-api-key`, verificación de sesiones JWT, redirección al login, orígenes HTTP y HTTPS, recarga de configuración, un despliegue por zona | La configuración desde Firebase está implementada en la caché, pero en la demostración se usa `values-local.yaml`, porque el API todavía no marca dominios como verificados. Sin keep-alive; no respeta `Vary` | Ver [zonal-cache/README.md](zonal-cache/README.md#9-estado) |
-| RestAPI Node.js / UI     | Registro, inicio y cierre de sesión con Firebase Authentication; registro y listado de dominios con servidor de origen; administración de reglas, API keys y usuarios de recursos; `GET /api/cache/config` para las cachés | Falta: verificación TXT, eliminación de dominios, login de recursos (`POST /api/cache/sessions`), reglas sin autenticación y tipo de archivo `*` | Sin la verificación TXT, `/api/cache/config` devuelve una lista vacía. Ver [Docs/Integracion.md](Docs/Integracion.md#9-pendientes) |
+| Zonal Cache              | Servidor TCP con SSL termination, caché en disco con límites por dominio y por URL, LRU/LFU/FIFO/MRU/Random, TTL por tipo de archivo, `x-api-key`, verificación de sesiones JWT, redirección al login, orígenes HTTP y HTTPS, recarga de configuración, un despliegue por zona | La demostración usa `values-local.yaml`; falta conectar la configuración real de Firebase con un dominio verificado por DNS. Sin keep-alive; no respeta `Vary` | Ver [zonal-cache/README.md](zonal-cache/README.md#9-estado) |
+| RestAPI Node.js / UI     | Cuentas del panel con Firebase Authentication; registro, listado, verificación TXT y eliminación de dominios; administración de reglas, API keys y usuarios de recursos; `GET /api/cache/config`; login de recursos con JWT | Falta publicar en Vercel y probar el flujo completo con DNS y caché desplegada. Los ajustes propuestos de reglas sin autenticación y tipo de archivo `*` siguen pendientes | Las pruebas de API usan Firestore y DNS simulados. Ver [Docs/Integracion.md](Docs/Integracion.md#9-pendientes) |
 | Rest API / Apache Server | GET, POST, PUT y DELETE en Java; HTML en Apache; ambos con Dockerfile, Helm y Docker Compose, probados a través de la caché | Los datos de la Rest API Java viven en memoria y se pierden al reiniciar el pod | — |
 
 ## 11. Conclusiones
@@ -391,7 +392,7 @@ Recomendación del enunciado: usar `nslookup` para el DNS Interceptor y Postman/
 
 ## 12. Recomendaciones
 
-1. Completar la verificación TXT en el API para que la configuración real de Firebase llegue a las cachés y dejar `values-local.yaml` solo para desarrollo.
+1. Probar la verificación TXT con un dominio real y conectar las cachés al API para dejar `values-local.yaml` solo para desarrollo.
 2. Permitir reglas sin autenticación y el tipo de archivo `*` en el API y la UI: la caché ya los soporta y son necesarios para cachear contenido público.
 3. Sincronizar la lista de dominios del DNS Interceptor con los dominios verificados del API, en lugar de mantenerla fija en `values.yaml`.
 4. Agregar keep-alive y un pool de hilos con `epoll` a la caché si se espera mucha concurrencia, para no crear un hilo y un handshake TLS por petición.

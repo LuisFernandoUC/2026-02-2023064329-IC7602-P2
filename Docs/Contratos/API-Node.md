@@ -2,7 +2,7 @@
 
 **Responsable:** Nicole Parra Valverde
 
-**Estado:** implementados `/api/health`, `GET /api/domains`, `POST /api/domains`, la administración de reglas, API keys y usuarios de recursos, y `GET /api/cache/config`. Las demás rutas son propuestas.
+**Estado:** implementados `/api/health`, la administración de dominios, reglas, API keys y usuarios de recursos, `GET /api/cache/config` y `POST /api/cache/sessions`.
 
 Basado en las páginas 4 y 5 del [enunciado](../Proyectos-2026-02-IC7602-P2.pdf).
 
@@ -19,7 +19,7 @@ La caché en C guarda y sirve los archivos, controla el tamaño y aplica los alg
 
 ## 2. Datos mínimos
 
-Campos propuestos. Tamaños en bytes y TTL en segundos.
+Tamaños en bytes y TTL en segundos.
 
 | Dato | Campos mínimos | Uso |
 | --- | --- | --- |
@@ -28,13 +28,13 @@ Campos propuestos. Tamaños en bytes y TTL en segundos.
 | Regla de URL | `id`, `pathPattern`, `maxCacheBytes`, `fileTypes`, `authMode` | Configuración de una ruta, guardada bajo su dominio y con soporte de comodines. |
 | Usuario de un recurso | `id`, `ruleId`, `username`, `passwordHash` | Acceso a URLs con usuario y contraseña. |
 | API key | `id`, `ruleId`, `keyHash` | Acceso a URLs con `x-api-key`. |
-| Sesión de un recurso | `id`, `ruleId`, `userId`, `tokenHash`, `expiresAt` | Acceso después del login, hasta que venza la sesión. |
+| Sesión de un recurso | JWT con `domain`, `sub`, `rule`, `exp` | Acceso al dominio y regla indicados hasta que venza. No se guarda en Firestore. |
 
 `fileTypes` es una lista de tipos de archivo. Cada uno tiene `extension`, `ttlSeconds` y `replacementPolicy`. Las políticas son `LRU`, `LFU`, `FIFO`, `MRU` y `Random`.
 
 `authMode` puede ser `api-key` o `password`. Los usuarios de recursos son distintos de la cuenta del panel.
 
-Las contraseñas de usuarios de recursos, las claves y los tokens de sesión se guardarán como hashes. Los hashes de contraseñas no se enviarán a la UI ni a las cachés. Los hashes SHA-256 de las API keys se entregan solo a las cachés autenticadas para que validen `x-api-key`. Una API key se mostrará solo al crearla. Firebase Authentication maneja las contraseñas de las cuentas del panel.
+Las contraseñas de usuarios de recursos y las API keys se guardan como hashes. Los hashes de contraseñas no se envían a la UI ni a las cachés. Los hashes SHA-256 de las API keys se entregan solo a las cachés autenticadas para que validen `x-api-key`. Una API key se muestra solo al crearla. Las sesiones de recursos usan JWT firmados con el secreto compartido con la caché. Firebase Authentication maneja las cuentas del panel.
 
 ### Ejemplo de regla de URL
 
@@ -66,8 +66,8 @@ El registro, inicio y cierre de sesión del panel usan Firebase Authentication c
 | --- | --- | --- |
 | GET | `/api/domains` | Listar los dominios de la cuenta. Implementada. |
 | POST | `/api/domains` | Agregar un dominio, su servidor de origen y límite de caché, y generar el valor TXT. Implementada. |
-| DELETE | `/api/domains/:domainId` | Eliminar el dominio, sus reglas, usuarios, claves y sesiones. |
-| POST | `/api/domains/:domainId/verify` | Consultar el TXT y verificar la propiedad. |
+| DELETE | `/api/domains/:domainId` | Eliminar el dominio y sus subcolecciones. Implementada. |
+| POST | `/api/domains/:domainId/verify` | Consultar el TXT y verificar la propiedad. Implementada. |
 | GET | `/api/domains/:domainId/rules` | Listar las reglas de URL. Implementada. |
 | POST | `/api/domains/:domainId/rules` | Crear una regla de URL. Implementada. |
 | PUT | `/api/domains/:domainId/rules/:ruleId` | Modificar una regla de URL. Implementada. |
@@ -80,7 +80,9 @@ El registro, inicio y cierre de sesión del panel usan Firebase Authentication c
 | POST | `/api/domains/:domainId/rules/:ruleId/keys` | Crear una API key y devolver su valor una sola vez. Implementada. |
 | DELETE | `/api/domains/:domainId/rules/:ruleId/keys/:keyId` | Eliminar una API key. Implementada. |
 
-Al agregar un dominio, la API devuelve el registro `_verificacion.<dominio>` con un token generado en el servidor. Se guarda con `verified: false`. La consulta del TXT para verificar la propiedad sigue pendiente. Solo los dominios verificados se enviarán a las cachés.
+Al agregar un dominio, la API devuelve el registro `_verificacion.<dominio>` con un token generado en el servidor. Se guarda con `verified: false`. La verificación consulta ese TXT y solo marca `verified: true` si un registro completo coincide con el token guardado. Solo los dominios verificados se envían a las cachés.
+
+Verificar y eliminar comprueban la sesión y el propietario. La verificación responde `200` con el dominio actualizado, `409` si falta el TXT, no coincide o el nombre ya está verificado en otra cuenta, y `503` ante fallos del DNS o Firestore. Repetir una verificación exitosa devuelve el dominio sin cambiarlo. La eliminación usa `recursiveDelete`, responde `204` y borra también las reglas, usuarios y claves. Un dominio ajeno o inexistente responde `404`.
 
 `originUrl` es obligatorio al agregar un dominio. Debe ser una dirección HTTP o HTTPS, con puerto opcional, sin rutas, credenciales, parámetros ni fragmentos. Se guarda su dirección base, por ejemplo `http://apache-apache:8080`, para que la caché añada la ruta del recurso. Los dominios anteriores no se modifican automáticamente.
 
@@ -92,36 +94,36 @@ El listado responde `200`, el registro `201`, la edición `200` y la eliminació
 
 Las API keys usan los mismos permisos del dominio. Se generan en el servidor y solo se guarda `keyHash` en `domains/{domainId}/rules/{ruleId}/keys/{keyId}`. La creación responde `201` con `{ id, apiKey }`; el listado devuelve únicamente los IDs y la eliminación responde `204`. Crear una clave requiere que la regla esté guardada con `authMode: "api-key"`; de lo contrario responde `409`. Las respuestas usan `Cache-Control: no-store`.
 
-Los usuarios se guardan en `domains/{domainId}/rules/{ruleId}/users/{userId}`, con los mismos permisos. Crear o editar requiere que la regla esté guardada con `authMode: "password"`. El cuerpo recibe `username` y `password`; al editar, omitir la contraseña o dejarla vacía conserva la actual. El nombre se recorta y se comprueba que no esté repetido en esa regla; un duplicado responde `409`. La contraseña se guarda como `scrypt$<sal hexadecimal>$<hash hexadecimal>`, con una sal aleatoria por contraseña. Las respuestas solo incluyen `id` y `username`: `201` al crear, `200` al listar o editar y `204` al eliminar. El login y las sesiones siguen pendientes.
-
-La comprobación del propietario se agregará al implementar las rutas restantes del panel.
+Los usuarios se guardan en `domains/{domainId}/rules/{ruleId}/users/{userId}`, con los mismos permisos. Crear o editar requiere que la regla esté guardada con `authMode: "password"`. El cuerpo recibe `username` y `password`; al editar, omitir la contraseña o dejarla vacía conserva la actual. El nombre se recorta y se comprueba que no esté repetido en esa regla; un duplicado responde `409`. La contraseña se guarda como `scrypt$<sal hexadecimal>$<hash hexadecimal>`, con una sal aleatoria por contraseña. Las respuestas solo incluyen `id` y `username`: `201` al crear, `200` al listar o editar y `204` al eliminar.
 
 ## 4. Endpoints para las cachés
 
-El endpoint de configuración sigue el formato que ya acepta la caché, descrito en [Integración](../Integracion.md). Las rutas de sesiones siguen propuestas.
+Los endpoints siguen el formato que ya acepta la caché, descrito en [Integración](../Integracion.md).
 
 | Método | Ruta | Operación y acceso |
 | --- | --- | --- |
 | GET | `/api/cache/config` | Entregar todos los dominios verificados, sus reglas y hashes de API keys. Requiere el token de la caché. Implementada. |
-| POST | `/api/cache/sessions` | Recibir dominio, ruta, usuario y contraseña desde el formulario de la UI y crear una sesión. |
-| DELETE | `/api/cache/sessions/current` | Cerrar la sesión del token recibido. |
+| POST | `/api/cache/sessions` | Validar las credenciales del recurso y devolver la dirección de regreso con un JWT firmado. Implementada. No requiere la sesión del panel. |
 
 La configuración tiene la forma `{ "domains": [...] }`. Cada dominio incluye `name`, `originUrl` si está guardado, `maxCacheBytes` y `rules`. Cada regla incluye su `id`, patrón, tamaño, mecanismo de acceso, tipos de archivo y `apiKeys` con los hashes SHA-256. No incluye propietarios, tokens TXT, usuarios ni hashes de contraseñas.
 
 La caché envía `Authorization: Bearer <CACHE_API_TOKEN>`. Ese valor se configura como `ZC_CONFIG_TOKEN` en la caché y es distinto de la API key del cliente. La respuesta usa `Cache-Control: no-store`. Sin dominios verificados devuelve `{ "domains": [] }`; sin token válido responde `401` y si falta la configuración del token o falla Firestore responde `503`.
 
-La caché valida las API keys con los hashes recibidos, sin consultar a la API en cada petición. El login y las sesiones por recurso quedan pendientes.
+La caché valida las API keys con los hashes recibidos, sin consultar a la API en cada petición.
+
+El login recibe `{ domain, path, username, password, callback }`. Busca el dominio verificado y la regla más específica para la ruta, con el mismo criterio de comodines que la caché. La regla debe usar `password`. Valida la contraseña con scrypt y responde `201` con `{ redirect, expiresAt }`. `redirect` apunta a `/__zc/auth` del mismo dominio, con la ruta de regreso y el JWT HS256. La sesión incluye el dominio, el nombre del usuario, el ID de la regla y el vencimiento. Requiere `CACHE_SESSION_SECRET` y `CACHE_SESSION_SECONDS`.
+
+Los datos o callbacks inválidos responden `400`; las credenciales incorrectas, un dominio no verificado o una regla sin acceso por contraseña responden `401`; los fallos del servicio o la configuración responden `503`. La respuesta usa `Cache-Control: no-store`. El callback debe ser HTTP o HTTPS, del mismo dominio, sin credenciales ni fragmento. La ruta de regreso debe coincidir con el recurso solicitado.
+
+La caché guarda el JWT en su cookie. El cierre usa `/__zc/logout`, que borra esa cookie; no requiere otra ruta en la API. Un token ya emitido sigue siendo válido hasta su vencimiento. Eliminar un usuario impide nuevos logins; los cambios de reglas y dominios llegan cuando la caché vuelve a consultar su configuración.
 
 ## 5. Pendientes
 
 | Acuerdo | Participantes |
 | --- | --- |
-| Aplicar los permisos por propietario al implementar las demás rutas del panel. | Nicole |
-| Implementar la consulta del registro TXT para verificar dominios. | Nicole y Luis Fernando |
-| Definir cómo funciona `*`, qué regla gana si coinciden varias y qué pasa si ninguna coincide. | Nicole y Fabricio |
 | Definir el formato de configuración, el origen de los archivos y cómo la caché recibe los cambios, incluidas las eliminaciones de claves o usuarios. | Nicole y Fabricio |
 | Configurar el mismo valor de `CACHE_API_TOKEN` y `ZC_CONFIG_TOKEN` al conectar la caché con la API. | Nicole y Fabricio |
-| Definir el flujo de login: formulario, entrega del token, uso, vencimiento, cierre de sesión y regreso al recurso. | Nicole y Fabricio |
+| Probar el login y cierre de sesión con la caché desplegada y el mismo secreto de sesión. | Nicole y Fabricio |
 | Definir qué datos necesita el DNS Interceptor para reconocer los dominios verificados. | Nicole y Luis Fernando |
 
 La configuración de los servicios y sus credenciales se leerá de variables de entorno.

@@ -84,7 +84,11 @@ El listado devuelve el origen guardado. Los dominios creados antes de este campo
 
 Responde `201` al guardar, `400` si los datos no son válidos, `409` si el dominio ya está en esa cuenta y `503` si falla Firestore. El límite debe ser un entero positivo de bytes y el nombre debe permitir formar un registro TXT de hasta 253 caracteres.
 
-La eliminación de dominios y la consulta del TXT siguen pendientes. `apache.local` sirve para probar el guardado local; verificar la propiedad requiere poder modificar el DNS que consulta la API.
+`POST /api/domains/:domainId/verify` consulta `_verificacion.<dominio>` con el DNS del servidor. Une los fragmentos de cada registro TXT y los compara con el token guardado. Si coincide, guarda `verified: true` y devuelve el dominio actualizado. No acepta un token ni un estado de verificación enviados por el cliente. Si el dominio ya está verificado, devuelve su estado actual.
+
+La verificación responde `409` si el TXT no aparece, no coincide o el nombre ya está verificado en otra cuenta. Los errores de DNS o Firestore responden `503`. `apache.local` sirve para probar el guardado local; verificar la propiedad requiere poder modificar el DNS que consulta la API.
+
+`DELETE /api/domains/:domainId` elimina el dominio y todas sus subcolecciones mediante `recursiveDelete`. Responde `204` al terminar y `503` si falla el borrado. Verificar y eliminar comprueban la sesión y el propietario; un dominio ajeno o inexistente responde `404`.
 
 ## Reglas de URL
 
@@ -130,7 +134,24 @@ Las rutas `/api/domains/:domainId/rules/:ruleId/users` usan los mismos permisos 
 
 Crear y editar requiere que la regla tenga `authMode: "password"`. El nombre se recorta y se consulta para rechazar duplicados en esa regla con `409`; el mismo nombre puede usarse en otra regla. La API guarda solo el nombre y `passwordHash` en la subcolección `users`. Usa scrypt con una sal aleatoria de 16 bytes y un hash de 64 bytes, en el formato acordado en `Docs/Integracion.md`. No devuelve contraseñas ni hashes al panel o a la caché. Las respuestas usan `Cache-Control: no-store`.
 
-Estos usuarios son distintos de las cuentas de Firebase Authentication. Su formulario de login y las sesiones todavía no están conectados.
+Estos usuarios son distintos de las cuentas de Firebase Authentication.
+
+## Login de recursos
+
+`POST /api/cache/sessions` es público y recibe `{ domain, path, username, password, callback }` desde `#/acceso-recurso`. No necesita una cuenta del panel ni el token de configuración de la caché.
+
+Busca el dominio verificado y la regla más específica para la ruta. Usa los comodines `*` y `?`, y gana el patrón con más caracteres fijos, igual que la caché. La regla debe usar acceso por contraseña. El usuario se busca solo dentro de esa regla y su contraseña se verifica con scrypt.
+
+El callback debe ser HTTP o HTTPS, del mismo dominio y con ruta `/__zc/auth`, sin credenciales ni fragmentos. Su parámetro `next` debe volver a la ruta solicitada; si falta, se usa esa ruta. Puede conservar los parámetros de consulta del recurso.
+
+Al validar responde `201` con `{ redirect, expiresAt }`. La dirección incluye el JWT HS256 con `domain`, `sub`, `rule` y `exp`. Las sesiones no se guardan en Firestore. Las respuestas usan `Cache-Control: no-store`; los datos inválidos responden `400`, el acceso denegado `401` y los fallos del servicio o de configuración `503`.
+
+Configurar en `.env`:
+
+- `CACHE_SESSION_SECRET`: secreto de al menos 32 bytes. Generarlo con `openssl rand -hex 32` y usar el mismo valor como `ZC_SESSION_SECRET` en la caché.
+- `CACHE_SESSION_SECONDS`: entero positivo con la duración en segundos, por ejemplo `3600`.
+
+La UI vuelve a la caché con el token y la caché guarda su cookie. `/__zc/logout` borra esa cookie. Un token emitido sigue siendo válido hasta que venza; eliminar un usuario impide nuevos logins. Las eliminaciones de reglas o dominios llegan a la caché cuando actualiza su configuración.
 
 ## Configuración para las cachés
 
@@ -142,7 +163,7 @@ La respuesta no incluye propietarios, tokens TXT, usuarios, contraseñas ni hash
 
 Si no hay dominios verificados, devuelve `200` y `{ "domains": [] }`. Un token ausente o incorrecto responde `401`. Si falta `CACHE_API_TOKEN`, responde `503`.
 
-La verificación TXT y el login de recursos siguen pendientes. Todavía falta completar esos pasos y conectar el despliegue de la caché con la API.
+Falta conectar el despliegue de la caché con esta API y probarlo con un dominio verificado por DNS.
 
 Agregar `CACHE_API_TOKEN` a `.env` y usar el mismo valor como `ZC_CONFIG_TOKEN` en la caché. Se puede generar un valor con `openssl rand -hex 32`. No subirlo al repositorio ni ponerlo en variables `VITE_`.
 
@@ -176,6 +197,8 @@ Las de API keys comprueban la creación, el listado sin valores ni hashes, la el
 
 Las de usuarios comprueban el hash de la contraseña, el listado sin datos secretos, la edición con y sin cambio de contraseña, los duplicados por regla, la eliminación, los permisos y los fallos de Firestore.
 
+Las de dominios incluyen la verificación TXT con registros en fragmentos, los errores de DNS, los permisos y el borrado de subcolecciones. Las de sesiones comprueban la firma y el alcance del JWT, el vencimiento configurado, la selección de reglas, las credenciales, los callbacks y los fallos del servicio. DNS y Firestore se simulan en estas pruebas; no verifican ni borran dominios reales.
+
 Con la API en ejecución, consultar el endpoint usando el valor de `CACHE_API_TOKEN` de `.env`:
 
 ```bash
@@ -200,4 +223,6 @@ Reemplazar `<CACHE_API_TOKEN>` por el valor local. Debe responder `200` con la l
 - [Borrado recursivo en Firestore](https://googleapis.dev/nodejs/firestore/latest/Firestore.html#recursiveDelete): eliminación de una regla y sus subcolecciones.
 - [Comparación de tokens en Node.js](https://nodejs.org/docs/latest-v24.x/api/crypto.html#cryptotimingsafeequala-b): uso de `timingSafeEqual`.
 - [scrypt en Node.js](https://nodejs.org/docs/latest-v24.x/api/crypto.html#cryptoscryptpassword-salt-keylen-options-callback): hash de contraseñas con sal aleatoria.
+- [Consultas TXT en Node.js](https://nodejs.org/docs/latest-v24.x/api/dns.html#dnspromisesresolvetxthostname): lectura de registros DNS y sus fragmentos.
+- [JSON Web Token (RFC 7519)](https://www.rfc-editor.org/rfc/rfc7519.html): formato del token de sesión.
 - [Subir claves de cuentas de servicio](https://docs.cloud.google.com/iam/docs/keys-upload): registro del certificado público en Google Cloud.

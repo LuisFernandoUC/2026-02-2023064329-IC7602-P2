@@ -11,16 +11,17 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState('');
-  const isPanelRoute = route === '#/dominios' || route.startsWith('#/dominios/');
-  const verificationId = route.match(/^#\/dominios\/([^/]+)\/verificar$/)?.[1];
-  const domainId = route.match(/^#\/dominios\/([^/]+)$/)?.[1];
-  const ruleRoute = route.match(/^#\/dominios\/([^/]+)\/reglas\/(?:nueva|([^/]+)\/editar)$/);
+  const routePath = route.split('?')[0];
+  const isPanelRoute = routePath === '#/dominios' || routePath.startsWith('#/dominios/');
+  const verificationId = routePath.match(/^#\/dominios\/([^/]+)\/verificar$/)?.[1];
+  const domainId = routePath.match(/^#\/dominios\/([^/]+)$/)?.[1];
+  const ruleRoute = routePath.match(/^#\/dominios\/([^/]+)\/reglas\/(?:nueva|([^/]+)\/editar)$/);
   const titles = {
     '#/crear-cuenta': 'Crear cuenta',
     '#/dominios': 'Mis dominios',
     '#/acceso-recurso': 'Acceder al recurso',
   };
-  let pageTitle = titles[route] || 'Iniciar sesión';
+  let pageTitle = titles[routePath] || 'Iniciar sesión';
   if (verificationId) pageTitle = 'Verificar dominio';
   if (domainId) pageTitle = 'Detalle del dominio';
   if (ruleRoute) pageTitle = ruleRoute[2] ? 'Editar regla' : 'Agregar regla';
@@ -54,15 +55,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!authReady || authError || route === '#/acceso-recurso') return;
+    if (!authReady || authError || routePath === '#/acceso-recurso') return;
     if (user && !isPanelRoute) window.location.hash = '#/dominios';
     if (!user && isPanelRoute) window.location.hash = '#/iniciar-sesion';
-  }, [user, authReady, authError, route, isPanelRoute]);
+  }, [user, authReady, authError, routePath, isPanelRoute]);
 
-  if (route === '#/acceso-recurso') return <ResourceAccess />;
+  if (routePath === '#/acceso-recurso') return <ResourceAccess key={route} />;
   if (!authReady) return <p role="status" className="p-6 text-muted">Comprobando sesión…</p>;
   if (authError) return <p role="alert" className="p-6">{authError}</p>;
-  if (!user) return route === '#/crear-cuenta' ? <Register /> : <Login />;
+  if (!user) return routePath === '#/crear-cuenta' ? <Register /> : <Login />;
 
   if (isPanelRoute) {
     return <Domains key={user.uid} user={user} verificationId={verificationId} domainId={domainId} ruleForm={ruleRoute ? { domainId: ruleRoute[1], ruleId: ruleRoute[2] } : null} />;

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
+import dns from 'node:dns/promises';
 import { after, before, test } from 'node:test';
 import { getAuth } from 'firebase-admin/auth';
 import app from './app.js';
@@ -27,33 +28,50 @@ before(async () => {
 after(() => new Promise((resolve) => server.close(resolve)));
 
 // Las cuentas y los documentos de estas pruebas solo existen en memoria.
-function mockFirebase(t, records = new Map()) {
+function mockFirebase(t, records = new Map(), failAt) {
   t.mock.method(auth, 'verifyIdToken', async (token) => ({ uid: token }));
+  function document(id) {
+    return {
+      id, path: `domains/${id}`,
+      async get() {
+        if (failAt === 'read') throw new Error('Detalle privado de Firestore');
+        return { exists: records.has(id), data: () => records.get(id) };
+      },
+      async create(data) {
+        if (records.has(id)) throw Object.assign(new Error('Duplicado'), { code: 6 });
+        records.set(id, data);
+      },
+      async update(data) {
+        if (failAt === 'update') throw new Error('Detalle privado de Firestore');
+        assert.ok(records.has(id));
+        records.set(id, { ...records.get(id), ...data });
+      },
+      collection(name) {
+        return { get: async () => ({ docs: [...records].filter(([key]) => key.startsWith(`${id}/${name}/`) && !key.slice(`${id}/${name}/`.length).includes('/'))
+          .map(([key, data]) => ({ id: key.split('/').at(-1), data: () => data, ref: document(key) })) }) };
+      },
+    };
+  }
   t.mock.method(db, 'collection', (collection) => {
     assert.equal(collection, 'domains');
     return {
-      where(field, operator, ownerId) {
-        assert.equal(field, 'ownerId');
+      where(field, operator, value) {
         assert.equal(operator, '==');
         return {
           async get() {
             return {
-              docs: [...records].filter(([, data]) => data.ownerId === ownerId)
-                .map(([id, data]) => ({ id, data: () => data })),
+              docs: [...records].filter(([id, data]) => !id.includes('/') && data[field] === value)
+                .map(([id, data]) => ({ id, data: () => data, ref: document(id) })),
             };
           },
         };
       },
-      doc(id) {
-        return {
-          id,
-          async create(data) {
-            if (records.has(id)) throw Object.assign(new Error('Duplicado'), { code: 6 });
-            records.set(id, data);
-          },
-        };
-      },
+      doc: document,
     };
+  });
+  t.mock.method(db, 'recursiveDelete', async (ref) => {
+    if (failAt === 'delete') throw new Error('Detalle privado de Firestore');
+    for (const key of records.keys()) if (key === ref.id || key.startsWith(`${ref.id}/`)) records.delete(key);
   });
   return records;
 }
@@ -66,9 +84,9 @@ function createDomain(body, token = 'cuenta-a') {
   });
 }
 
-test('listar y crear dominios requieren sesión', async () => {
-  for (const method of ['GET', 'POST']) {
-    const response = await fetch(`${baseUrl}/api/domains`, { method });
+test('todas las operaciones de dominios requieren sesión', async () => {
+  for (const [method, path] of [['GET', ''], ['POST', ''], ['POST', '/dominio-a/verify'], ['DELETE', '/dominio-a']]) {
+    const response = await fetch(`${baseUrl}/api/domains${path}`, { method });
     assert.equal(response.status, 401);
   }
 });
@@ -173,4 +191,114 @@ test('un cuerpo JSON incompleto devuelve un error JSON', async (t) => {
   assert.equal(response.status, 400);
   assert.equal(typeof (await response.json()).error, 'string');
   assert.equal(records.size, 0);
+});
+
+function pendingDomain(changes = {}) {
+  return { ownerId: 'cuenta-a', name: 'apache.local', originUrl: 'http://apache-apache', maxCacheBytes: 1048576, verified: false, verificationToken: 'token-guardado', ...changes };
+}
+
+function domainRequest(method, path, token = 'cuenta-a') {
+  return fetch(`${baseUrl}/api/domains/${path}`, { method, headers: { Authorization: `Bearer ${token}` } });
+}
+
+test('verifica el TXT guardado, une sus fragmentos y entrega el dominio a la caché', async (t) => {
+  const domain = pendingDomain();
+  const records = mockFirebase(t, new Map([['dominio-a', domain]]));
+  const lookup = t.mock.method(dns, 'resolveTxt', async (name) => {
+    assert.equal(name, '_verificacion.apache.local');
+    return [['otro-registro'], ['token-', 'guardado']];
+  });
+  const response = await domainRequest('POST', 'dominio-a/verify');
+  assert.equal(response.status, 200);
+  assert.deepEqual(records.get('dominio-a'), { ...domain, verified: true });
+  assert.equal((await response.json()).verified, true);
+  assert.equal(lookup.mock.callCount(), 1);
+  process.env.CACHE_API_TOKEN = 'token-cache-pruebas';
+  const config = await fetch(`${baseUrl}/api/cache/config`, { headers: { Authorization: 'Bearer token-cache-pruebas' } });
+  assert.equal(config.status, 200);
+  assert.deepEqual((await config.json()).domains, [{ name: domain.name, originUrl: domain.originUrl, maxCacheBytes: domain.maxCacheBytes, rules: [] }]);
+});
+
+test('un TXT ausente o distinto no verifica el dominio', async (t) => {
+  const records = mockFirebase(t, new Map([['dominio-a', pendingDomain()]]));
+  let txt = [];
+  t.mock.method(dns, 'resolveTxt', async () => txt);
+  for (const value of [[], [['incorrecto']], [['token-'], ['guardado']]]) {
+    txt = value;
+    assert.equal((await domainRequest('POST', 'dominio-a/verify')).status, 409);
+    assert.equal(records.get('dominio-a').verified, false);
+  }
+});
+
+test('distingue un TXT no publicado de un fallo del servicio DNS', async (t) => {
+  const records = mockFirebase(t, new Map([['dominio-a', pendingDomain()]]));
+  let code;
+  t.mock.method(dns, 'resolveTxt', async () => { throw Object.assign(new Error('Detalle privado DNS'), { code }); });
+  for (const [value, status] of [['ENODATA', 409], ['ENOTFOUND', 409], ['ESERVFAIL', 503], ['ETIMEOUT', 503]]) {
+    code = value;
+    const response = await domainRequest('POST', 'dominio-a/verify');
+    assert.equal(response.status, status);
+    assert.doesNotMatch(JSON.stringify(await response.json()), /Detalle privado/);
+    assert.equal(records.get('dominio-a').verified, false);
+  }
+});
+
+test('repetir la verificación no cambia el dominio ni consulta el DNS de nuevo', async (t) => {
+  const domain = pendingDomain({ verified: true });
+  const records = mockFirebase(t, new Map([['dominio-a', domain]]));
+  const lookup = t.mock.method(dns, 'resolveTxt', async () => { throw new Error('No debe consultar'); });
+  const response = await domainRequest('POST', 'dominio-a/verify');
+  assert.equal(response.status, 200);
+  assert.deepEqual(records.get('dominio-a'), domain);
+  assert.equal(lookup.mock.callCount(), 0);
+});
+
+test('no verifica un nombre que ya está verificado en otra cuenta', async (t) => {
+  const records = mockFirebase(t, new Map([
+    ['dominio-a', pendingDomain()],
+    ['dominio-b', pendingDomain({ ownerId: 'cuenta-b', verified: true })],
+  ]));
+  t.mock.method(dns, 'resolveTxt', async () => [['token-guardado']]);
+  assert.equal((await domainRequest('POST', 'dominio-a/verify')).status, 409);
+  assert.equal(records.get('dominio-a').verified, false);
+});
+
+test('verificar y eliminar comprueban el propietario antes de consultar DNS o borrar datos', async (t) => {
+  const records = mockFirebase(t, new Map([['dominio-a', pendingDomain()]]));
+  const lookup = t.mock.method(dns, 'resolveTxt', async () => []);
+  const original = [...records];
+  for (const [id, token] of [['dominio-a', 'cuenta-b'], ['inexistente', 'cuenta-a'], ['ruta%2Fno%2Fvalida', 'cuenta-a']]) {
+    assert.equal((await domainRequest('POST', `${id}/verify`, token)).status, 404);
+    assert.equal((await domainRequest('DELETE', id, token)).status, 404);
+  }
+  assert.deepEqual([...records], original);
+  assert.equal(lookup.mock.callCount(), 0);
+});
+
+test('eliminar borra el dominio y sus subcolecciones, y lo quita de la configuración', async (t) => {
+  const records = mockFirebase(t, new Map([
+    ['dominio-a', pendingDomain({ verified: true })],
+    ['dominio-a/rules/regla-a', { pathPattern: '/*' }],
+    ['dominio-a/rules/regla-a/keys/clave-a', { keyHash: 'hash' }],
+    ['dominio-a/rules/regla-a/users/usuario-a', { username: 'lector', passwordHash: 'hash' }],
+    ['dominio-b', pendingDomain({ name: 'otro.local', ownerId: 'cuenta-b', verified: true })],
+  ]));
+  const response = await domainRequest('DELETE', 'dominio-a');
+  assert.equal(response.status, 204);
+  assert.deepEqual([...records.keys()], ['dominio-b']);
+  process.env.CACHE_API_TOKEN = 'token-cache-pruebas';
+  const config = await fetch(`${baseUrl}/api/cache/config`, { headers: { Authorization: 'Bearer token-cache-pruebas' } });
+  assert.deepEqual((await config.json()).domains.map((domain) => domain.name), ['otro.local']);
+});
+
+test('los fallos de Firestore no confirman verificaciones o eliminaciones fallidas', async (t) => {
+  t.mock.method(dns, 'resolveTxt', async () => [['token-guardado']]);
+  for (const [failAt, method, path] of [['read', 'POST', 'dominio-a/verify'], ['update', 'POST', 'dominio-a/verify'], ['delete', 'DELETE', 'dominio-a']]) {
+    const records = mockFirebase(t, new Map([['dominio-a', pendingDomain()]]), failAt);
+    const original = [...records];
+    const response = await domainRequest(method, path);
+    assert.equal(response.status, 503);
+    assert.doesNotMatch(JSON.stringify(await response.json()), /Detalle privado/);
+    assert.deepEqual([...records], original);
+  }
 });

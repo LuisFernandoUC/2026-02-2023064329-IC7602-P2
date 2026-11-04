@@ -37,7 +37,9 @@ Abrir `http://127.0.0.1:5173/`. **Crear cuenta** registra el correo y la contras
 
 Las pantallas del panel requieren sesión. Las solicitudes hechas con `apiRequest` envían el ID token para que la API lo verifique. El listado muestra únicamente los dominios de esa cuenta y empieza vacío.
 
-**Agregar dominio** guarda el nombre, el servidor de origen y el límite de caché. El origen debe ser una dirección HTTP o HTTPS, con puerto opcional y sin rutas, como `http://apache-apache` para el Apache del cluster. La caché debe poder acceder a ese servidor. La UI muestra MB y la API recibe bytes (1 MB = 1 048 576 bytes). Al guardarlo aparece como pendiente y se pueden consultar los datos de su registro TXT. La verificación y la eliminación todavía no están disponibles.
+**Agregar dominio** guarda el nombre, el servidor de origen y el límite de caché. El origen debe ser una dirección HTTP o HTTPS, con puerto opcional y sin rutas, como `http://apache-apache` para el Apache del cluster. La caché debe poder acceder a ese servidor. La UI muestra MB y la API recibe bytes (1 MB = 1 048 576 bytes). Al guardarlo aparece como pendiente y se pueden consultar los datos de su registro TXT.
+
+**Verificar dominio** consulta el TXT mediante la API. Si coincide, el estado cambia a **Verificado** también en la lista de dominios. Si falta o es distinto, muestra el error y permite volver a intentarlo. **Eliminar** pide confirmación y borra el dominio con sus reglas, usuarios y claves.
 
 El detalle del dominio muestra su servidor de origen. Si fue creado antes de agregar este campo, muestra **Sin configurar**; no se cambia su configuración automáticamente.
 
@@ -47,7 +49,7 @@ En **Editar regla**, si el acceso guardado es por API key, se pueden crear y eli
 
 Si el acceso guardado es **Usuario y contraseña**, se pueden agregar, editar y eliminar los usuarios de esa regla. Al editar se puede cambiar el nombre; dejar la contraseña vacía conserva la actual. La lista muestra solo los nombres y la eliminación pide confirmación. Las contraseñas se envían a la API para guardar su hash y no se vuelven a mostrar.
 
-`#/acceso-recurso` es el formulario para usuarios de recursos y permanece público. Todavía falta conectarlo con la API de acceso a las cachés; no usa la cuenta del panel.
+`#/acceso-recurso?domain=...&path=...&callback=...` es el formulario público al que redirige la caché. Muestra el dominio y la ruta recibidos, envía las credenciales a `POST /api/cache/sessions` y vuelve a la caché con el token firmado. No usa la sesión del panel. Sin un enlace válido indica que se debe abrir el recurso desde su dirección original. **Cerrar sesión del recurso** abre `/__zc/logout` del mismo dominio.
 
 ## Comprobar
 
@@ -63,7 +65,13 @@ Para probar reglas en ese dominio, agregar `/prueba/*` con 0.5 MB, tipo `html`, 
 
 Para probar las claves, abrir **Editar regla → Crear clave**, copiar el valor y ocultarlo. Al recargar debe quedar solo su identificador. Eliminar esa clave de prueba desde la confirmación y recargar: ya no debe aparecer.
 
-Para probar usuarios, guardar una regla con acceso por **Usuario y contraseña**. Agregar un usuario de prueba y recargar: debe conservarse su nombre. Editarlo con contraseña vacía debe conservar la anterior; escribir una nueva debe reemplazarla. Probar también un nombre repetido y la eliminación desde su confirmación. El login con ese usuario se conectará en el siguiente paso.
+Para probar usuarios, guardar una regla con acceso por **Usuario y contraseña**. Agregar un usuario de prueba y recargar: debe conservarse su nombre. Editarlo con contraseña vacía debe conservar la anterior; escribir una nueva debe reemplazarla. Probar también un nombre repetido y la eliminación desde su confirmación.
+
+Para probar el TXT, usar un dominio cuyo DNS se pueda modificar. Publicar el nombre y valor que muestra **Verificar dominio** y pulsar **Verificar**. Recargar y comprobar que sigue verificado. Un TXT distinto o ausente debe mantenerlo pendiente. Con `apache.local` no se completa esta prueba en DNS público.
+
+Para probar el login completo, configurar la caché con la API, la URL de esta UI y el mismo secreto de sesión. Abrir un recurso de una regla con contraseña en un dominio verificado: debe redirigir al formulario, aceptar su usuario y regresar al archivo. Una contraseña incorrecta debe mostrar un error. Abrir el enlace de cierre de sesión y volver a pedir el archivo debe solicitar el login otra vez.
+
+Para probar la eliminación, usar un dominio de prueba que ya no se necesite, confirmar **Eliminar** y recargar. No debe aparecer en la lista ni conservar sus subcolecciones en Firestore.
 
 ## Referencias
 
