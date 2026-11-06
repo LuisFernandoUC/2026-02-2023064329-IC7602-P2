@@ -1,9 +1,40 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { apiRequest } from '../api.js';
 import DeleteDialog from '../components/DeleteDialog.jsx';
 
 export default function DomainDetail({ domain }) {
   const [deletingRule, setDeletingRule] = useState(null);
   const [message, setMessage] = useState('');
+  const [rules, setRules] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [removing, setRemoving] = useState(false);
+
+  useEffect(() => {
+    if (!domain) return;
+    let active = true;
+    setLoading(true);
+    setLoadError('');
+    apiRequest(`/api/domains/${encodeURIComponent(domain.id)}/rules`)
+      .then((data) => { if (active) setRules(data); })
+      .catch((error) => { if (active) setLoadError(error.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [domain?.id]);
+
+  async function deleteRule(rule) {
+    setRemoving(true);
+    setMessage('');
+    try {
+      await apiRequest(`/api/domains/${encodeURIComponent(domain.id)}/rules/${encodeURIComponent(rule.id)}`, { method: 'DELETE' });
+      setRules((current) => current.filter((item) => item.id !== rule.id));
+      setMessage('Regla eliminada.');
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setRemoving(false);
+    }
+  }
 
   if (!domain) {
     return (
@@ -14,8 +45,6 @@ export default function DomainDetail({ domain }) {
       </>
     );
   }
-
-  const rules = domain.rules ?? [];
 
   return (
     <>
@@ -29,6 +58,7 @@ export default function DomainDetail({ domain }) {
               {domain.verified ? 'Verificado' : 'Pendiente'}
             </span>
           </div>
+          <p className="mt-3 text-sm text-muted">Servidor de origen: <span className="break-all font-mono text-ink">{domain.originUrl || 'Sin configurar'}</span></p>
           {!domain.verified && <a href={`#/dominios/${domain.id}/verificar`} className="text-link mt-3 inline-block text-sm">Verificar dominio</a>}
         </div>
         <dl className="rounded-lg bg-soft px-5 py-4">
@@ -37,10 +67,9 @@ export default function DomainDetail({ domain }) {
         </dl>
       </div>
 
-      <p className="my-5 text-sm text-muted">La administración de reglas todavía no está disponible.</p>
       {message && <p role="status" className="form-message mb-5">{message}</p>}
 
-      <section aria-labelledby="rules-title">
+      <section aria-labelledby="rules-title" className="mt-7">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-3">
             <h2 id="rules-title" className="text-xl font-semibold">Reglas de URL</h2>
@@ -51,7 +80,11 @@ export default function DomainDetail({ domain }) {
           </a>
         </div>
 
-        {rules.length === 0 ? (
+        {loading ? (
+          <p role="status" className="text-muted">Cargando reglas…</p>
+        ) : loadError ? (
+          <p role="alert" className="form-message">{loadError}</p>
+        ) : rules.length === 0 ? (
           <div className="rounded-xl border border-line bg-surface px-6 py-12 text-center">
             <h3 className="text-lg font-semibold">Todavía no tienes reglas</h3>
             <p className="mt-3 text-sm text-muted">Agrega una regla para configurar las rutas y el acceso a los archivos.</p>
@@ -59,7 +92,7 @@ export default function DomainDetail({ domain }) {
         ) : (
           <div className="overflow-x-auto rounded-lg border border-line bg-surface">
             <table className="w-full text-left text-sm">
-              <caption className="sr-only">Reglas de URL de ejemplo para {domain.name}</caption>
+              <caption className="sr-only">Reglas de URL de {domain.name}</caption>
               <thead className="bg-soft text-xs uppercase tracking-wide text-muted">
                 <tr>
                   <th scope="col" className="px-5 py-4">Ruta o patrón</th>
@@ -73,7 +106,7 @@ export default function DomainDetail({ domain }) {
                 {rules.map((rule) => (
                   <tr key={rule.id} className="border-t border-line">
                     <th scope="row" className="whitespace-nowrap px-5 py-5 font-mono font-medium">{rule.pathPattern}</th>
-                    <td className="whitespace-nowrap px-5 py-5 font-mono text-muted">{rule.cacheSize}</td>
+                    <td className="whitespace-nowrap px-5 py-5 font-mono text-muted">{rule.maxCacheBytes / (1024 * 1024)} MB</td>
                     <td className="px-5 py-5">
                       <ul className="flex flex-wrap gap-1.5" aria-label="Tipos de archivo">
                         {rule.fileTypes.map((type) => <li key={type.extension} className="rounded bg-soft px-2 py-1 font-mono text-xs">{type.extension}</li>)}
@@ -83,7 +116,7 @@ export default function DomainDetail({ domain }) {
                     <td className="px-5 py-5">
                       <div className="flex justify-end gap-4">
                         <a href={`#/dominios/${domain.id}/reglas/${rule.id}/editar`} aria-label={`Editar regla ${rule.pathPattern}`} className="text-link">Editar</a>
-                        <button type="button" onClick={() => { setDeletingRule(rule); setMessage(''); }} aria-label={`Eliminar regla ${rule.pathPattern}`} className="rounded text-red-700 hover:underline">Eliminar</button>
+                        <button type="button" disabled={removing} onClick={() => { setDeletingRule(rule); setMessage(''); }} aria-label={`Eliminar regla ${rule.pathPattern}`} className="rounded text-red-700 hover:underline disabled:opacity-50">Eliminar</button>
                       </div>
                     </td>
                   </tr>
@@ -100,7 +133,7 @@ export default function DomainDetail({ domain }) {
           description="Se eliminarán también sus usuarios, claves y sesiones."
           confirmLabel="Eliminar regla"
           onClose={() => setDeletingRule(null)}
-          onConfirm={() => setMessage('Eliminar reglas aún no está disponible.')}
+          onConfirm={() => deleteRule(deletingRule)}
         />
       )}
     </>

@@ -1,7 +1,23 @@
 import { useState } from 'react';
+import { apiRequest } from '../api.js';
 
-export default function VerifyDomain({ domain }) {
+export default function VerifyDomain({ domain, onVerified }) {
   const [message, setMessage] = useState('');
+  const [verifying, setVerifying] = useState(false);
+
+  async function verifyDomain() {
+    setVerifying(true);
+    setMessage('');
+    try {
+      const verified = await apiRequest(`/api/domains/${encodeURIComponent(domain.id)}/verify`, { method: 'POST' });
+      onVerified(verified);
+      setMessage('Dominio verificado.');
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setVerifying(false);
+    }
+  }
 
   async function copyRecord(value, label) {
     try {
@@ -32,7 +48,7 @@ export default function VerifyDomain({ domain }) {
         <h1 className="text-3xl font-semibold tracking-tight">Verificar dominio</h1>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <span className="font-mono text-lg font-semibold">{domain.name}</span>
-          <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800">Pendiente</span>
+          <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${domain.verified ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>{domain.verified ? 'Verificado' : 'Pendiente'}</span>
         </div>
       </div>
 
@@ -65,7 +81,7 @@ export default function VerifyDomain({ domain }) {
         {message && <p role="status" className="form-message mt-5">{message}</p>}
 
         <div className="mt-6 border-t border-line pt-5">
-          <button type="button" className="button-primary" onClick={() => setMessage('La verificación TXT aún no está disponible.')}>Verificar dominio</button>
+          <button type="button" className="button-primary" disabled={verifying || domain.verified} onClick={verifyDomain}>{verifying ? 'Verificando…' : domain.verified ? 'Dominio verificado' : 'Verificar dominio'}</button>
         </div>
       </section>
     </>

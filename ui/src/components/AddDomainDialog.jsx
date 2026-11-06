@@ -18,6 +18,7 @@ export default function AddDomainDialog({ onClose, onCreated }) {
     event.preventDefault();
     const form = event.currentTarget;
     const domainInput = form.elements.namedItem('domain');
+    const originInput = form.elements.namedItem('origin-url');
     const cacheInput = form.elements.namedItem('cache-limit');
     const domain = domainInput.value.trim();
     const domainPattern = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
@@ -40,7 +41,7 @@ export default function AddDomainDialog({ onClose, onCreated }) {
       const savedDomain = await apiRequest('/api/domains', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: domain, maxCacheBytes: Math.round(cacheInput.valueAsNumber * 1024 * 1024) }),
+        body: JSON.stringify({ name: domain, originUrl: originInput.value.trim(), maxCacheBytes: Math.round(cacheInput.valueAsNumber * 1024 * 1024) }),
       });
       onCreated(savedDomain);
     } catch (error) {
@@ -78,6 +79,12 @@ export default function AddDomainDialog({ onClose, onCreated }) {
           <label htmlFor="domain" className="field-label">Nombre del dominio</label>
           <input id="domain" name="domain" type="text" placeholder="ejemplo.com" autoCapitalize="none" spellCheck={false} autoFocus required className="field-input" aria-describedby="domain-help" />
           <p id="domain-help" className="mt-2 text-xs text-muted">Puedes usar un dominio o subdominio, como archivos.ejemplo.com.</p>
+        </div>
+
+        <div>
+          <label htmlFor="origin-url" className="field-label">Servidor de origen</label>
+          <input id="origin-url" name="origin-url" type="url" placeholder="http://apache-apache" autoCapitalize="none" spellCheck={false} required className="field-input" aria-describedby="origin-help" />
+          <p id="origin-help" className="mt-2 text-xs text-muted">Dirección HTTP o HTTPS del servidor que tiene los archivos, sin rutas. Debe ser accesible desde la caché.</p>
         </div>
 
         <div>

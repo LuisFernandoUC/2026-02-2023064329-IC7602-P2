@@ -1,15 +1,61 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { apiRequest } from '../api.js';
 import PasswordField from './PasswordField.jsx';
 import DeleteDialog from './DeleteDialog.jsx';
 
-export default function RuleCredentials({ rule, authMode }) {
+export default function RuleCredentials({ domainId, rule, authMode }) {
   const [editingUser, setEditingUser] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [message, setMessage] = useState('');
   const isApiKey = authMode === 'api-key';
-  const items = isApiKey ? rule.keys ?? [] : rule.users ?? [];
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [newKey, setNewKey] = useState(null);
+  const credentialsPath = `/api/domains/${encodeURIComponent(domainId)}/rules/${encodeURIComponent(rule.id)}/${isApiKey ? 'keys' : 'users'}`;
 
-  function handleUserSubmit(event) {
+  useEffect(() => {
+    let active = true;
+    apiRequest(credentialsPath)
+      .then((data) => { if (active) setItems(data); })
+      .catch((error) => { if (active) setLoadError(error.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [credentialsPath]);
+
+  async function createKey() {
+    setBusy(true);
+    setMessage('');
+    setNewKey(null);
+    try {
+      const created = await apiRequest(credentialsPath, { method: 'POST' });
+      setItems((current) => [...current, { id: created.id }]);
+      setNewKey(created);
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteCredential(item) {
+    setBusy(true);
+    setMessage('');
+    try {
+      await apiRequest(`${credentialsPath}/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
+      setItems((current) => current.filter((entry) => entry.id !== item.id));
+      if (newKey?.id === item.id) setNewKey(null);
+      if (editingUser?.id === item.id) setEditingUser(null);
+      setMessage(isApiKey ? 'Clave eliminada.' : 'Usuario eliminado.');
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleUserSubmit(event) {
     event.preventDefault();
     const input = event.currentTarget.elements.namedItem('resource-username');
     const username = input.value.trim();
@@ -26,7 +72,23 @@ export default function RuleCredentials({ rule, authMode }) {
       return;
     }
 
-    setMessage(editingUser.id ? 'Guardar usuarios aún no está disponible.' : 'Crear usuarios aún no está disponible.');
+    const password = event.currentTarget.elements.namedItem('resource-password').value;
+    setBusy(true);
+    setMessage('');
+    try {
+      const saved = await apiRequest(editingUser.id ? `${credentialsPath}/${encodeURIComponent(editingUser.id)}` : credentialsPath, {
+        method: editingUser.id ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      setItems((current) => editingUser.id ? current.map((user) => user.id === saved.id ? saved : user) : [...current, saved]);
+      setEditingUser(null);
+      setMessage('Usuario guardado.');
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -34,9 +96,9 @@ export default function RuleCredentials({ rule, authMode }) {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h2 id="credentials-title" className="text-lg font-semibold">{isApiKey ? 'Claves de acceso' : 'Usuarios de acceso'}</h2>
         {isApiKey ? (
-          <button type="button" onClick={() => setMessage('Crear claves aún no está disponible.')} className="text-link text-sm font-medium">+ Crear clave</button>
+          <button type="button" disabled={busy || loading || Boolean(loadError)} onClick={createKey} className="text-link text-sm font-medium disabled:opacity-50">{busy ? 'Procesando…' : '+ Crear clave'}</button>
         ) : (
-          <button type="button" onClick={() => { setEditingUser({ id: null, username: '' }); setMessage(''); }} className="text-link text-sm font-medium">+ Agregar usuario</button>
+          <button type="button" disabled={busy || loading || Boolean(loadError)} onClick={() => { setEditingUser({ id: null, username: '' }); setMessage(''); }} className="text-link text-sm font-medium disabled:opacity-50">+ Agregar usuario</button>
         )}
       </div>
 
@@ -44,16 +106,28 @@ export default function RuleCredentials({ rule, authMode }) {
         {isApiKey ? 'Las claves existentes no muestran su valor. Una clave nueva se mostrará solo al crearla.' : 'Estos usuarios permiten acceder a los archivos de esta regla. Son distintos de la cuenta del panel.'}
       </p>
 
-      {items.length === 0 ? (
+      {isApiKey && newKey && (
+        <div role="status" className="form-message mt-5">
+          <p>Clave creada. Cópiala ahora; no volverá a mostrarse.</p>
+          <code className="mt-3 block select-all break-all font-mono text-sm">{newKey.apiKey}</code>
+          <button type="button" onClick={() => setNewKey(null)} className="text-link mt-3 text-sm font-medium">Ocultar clave</button>
+        </div>
+      )}
+
+      {loading ? (
+        <p role="status" className="mt-5 text-sm text-muted">{isApiKey ? 'Cargando claves…' : 'Cargando usuarios…'}</p>
+      ) : loadError ? (
+        <p role="alert" className="form-message mt-5">{loadError}</p>
+      ) : items.length === 0 ? (
         <p className="mt-5 rounded bg-soft p-4 text-sm text-muted">{isApiKey ? 'Esta regla no tiene claves.' : 'Esta regla no tiene usuarios.'}</p>
       ) : (
-        <ul className="mt-5 divide-y divide-line rounded-lg border border-line" aria-label={isApiKey ? 'Claves de ejemplo' : 'Usuarios de ejemplo'}>
+        <ul className="mt-5 divide-y divide-line rounded-lg border border-line" aria-label={isApiKey ? 'Claves de acceso' : 'Usuarios de acceso'}>
           {items.map((item) => (
             <li key={item.id} className="flex flex-wrap items-center justify-between gap-4 p-4">
               <span className="break-all font-mono text-sm font-medium">{isApiKey ? item.id : item.username}</span>
               <div className="flex items-center gap-4 text-sm">
-                {!isApiKey && <button type="button" onClick={() => { setEditingUser(item); setMessage(''); }} aria-label={`Editar usuario ${item.username}`} className="text-link">Editar</button>}
-                <button type="button" onClick={() => { setDeleting({ id: item.id, name: isApiKey ? item.id : item.username }); setMessage(''); }} aria-label={`Eliminar ${isApiKey ? 'clave' : 'usuario'} ${isApiKey ? item.id : item.username}`} className="rounded text-red-700 hover:underline">Eliminar</button>
+                {!isApiKey && <button type="button" disabled={busy} onClick={() => { setEditingUser(item); setMessage(''); }} aria-label={`Editar usuario ${item.username}`} className="text-link disabled:opacity-50">Editar</button>}
+                <button type="button" disabled={busy} onClick={() => { setDeleting({ id: item.id, name: isApiKey ? item.id : item.username }); setMessage(''); }} aria-label={`Eliminar ${isApiKey ? 'clave' : 'usuario'} ${isApiKey ? item.id : item.username}`} className="rounded text-red-700 hover:underline disabled:opacity-50">Eliminar</button>
               </div>
             </li>
           ))}
@@ -69,7 +143,7 @@ export default function RuleCredentials({ rule, authMode }) {
           aria-labelledby="user-form-title"
         >
           <h3 id="user-form-title" className="font-semibold">{editingUser.id ? 'Editar usuario' : 'Agregar usuario'}</h3>
-          <div className="grid items-start gap-5 md:grid-cols-2">
+          <fieldset disabled={busy} className="grid items-start gap-5 md:grid-cols-2">
             <div>
               <label htmlFor="resource-username" className="field-label">Nombre de usuario</label>
               <input id="resource-username" name="resource-username" type="text" autoComplete="off" defaultValue={editingUser.username} required className="field-input" />
@@ -78,10 +152,10 @@ export default function RuleCredentials({ rule, authMode }) {
               <PasswordField id="resource-password" label={editingUser.id ? 'Nueva contraseña' : 'Contraseña'} autoComplete="new-password" required={!editingUser.id} />
               {editingUser.id && <p className="mt-2 text-xs text-muted">Déjala vacía para conservar la contraseña actual.</p>}
             </div>
-          </div>
+          </fieldset>
           <div className="flex justify-end gap-3">
-            <button type="button" onClick={() => { setEditingUser(null); setMessage(''); }} className="rounded border border-line bg-surface px-4 py-2.5 text-sm font-medium hover:bg-background">Cancelar usuario</button>
-            <button type="submit" className="button-primary">{editingUser.id ? 'Guardar usuario' : 'Agregar usuario'}</button>
+            <button type="button" disabled={busy} onClick={() => { setEditingUser(null); setMessage(''); }} className="rounded border border-line bg-surface px-4 py-2.5 text-sm font-medium hover:bg-background disabled:opacity-50">Cancelar usuario</button>
+            <button type="submit" disabled={busy} className="button-primary">{busy ? 'Guardando…' : editingUser.id ? 'Guardar usuario' : 'Agregar usuario'}</button>
           </div>
         </form>
       )}
@@ -92,10 +166,10 @@ export default function RuleCredentials({ rule, authMode }) {
         <DeleteDialog
           title={`¿Eliminar ${isApiKey ? 'clave' : 'usuario'}?`}
           name={deleting.name}
-          description={isApiKey ? 'Al eliminarla, esta clave dejará de permitir el acceso a la regla.' : 'Al eliminarlo, este usuario dejará de tener acceso a la regla.'}
+          description={isApiKey ? 'La clave dejará de funcionar cuando las cachés actualicen su configuración.' : 'Se eliminará el usuario de esta regla.'}
           confirmLabel={`Eliminar ${isApiKey ? 'clave' : 'usuario'}`}
           onClose={() => setDeleting(null)}
-          onConfirm={() => setMessage(isApiKey ? 'Eliminar claves aún no está disponible.' : 'Eliminar usuarios aún no está disponible.')}
+          onConfirm={() => deleteCredential(deleting)}
         />
       )}
     </section>

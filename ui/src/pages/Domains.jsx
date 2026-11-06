@@ -19,6 +19,7 @@ export default function Domains({ user, verificationId, domainId, ruleForm }) {
   const [loadError, setLoadError] = useState('');
   const [addingDomain, setAddingDomain] = useState(false);
   const [deletingDomain, setDeletingDomain] = useState(null);
+  const [removingDomain, setRemovingDomain] = useState(false);
   const [message, setMessage] = useState('');
   const [signingOut, setSigningOut] = useState(false);
 
@@ -35,6 +36,24 @@ export default function Domains({ user, verificationId, domainId, ruleForm }) {
     setDomains((current) => [...current, domainView(domain)]);
     setAddingDomain(false);
     setMessage('Dominio guardado. Falta verificar su propiedad.');
+  }
+
+  function handleVerified(domain) {
+    setDomains((current) => current.map((item) => item.id === domain.id ? domainView(domain) : item));
+  }
+
+  async function deleteDomain(domain) {
+    setRemovingDomain(true);
+    setMessage('');
+    try {
+      await apiRequest(`/api/domains/${encodeURIComponent(domain.id)}`, { method: 'DELETE' });
+      setDomains((current) => current.filter((item) => item.id !== domain.id));
+      setMessage('Dominio eliminado.');
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setRemovingDomain(false);
+    }
   }
 
   async function handleLogout() {
@@ -72,11 +91,11 @@ export default function Domains({ user, verificationId, domainId, ruleForm }) {
         ) : loadError ? (
           <p role="alert" className="form-message">{loadError}</p>
         ) : verificationId ? (
-          <VerifyDomain key={verificationId} domain={domains.find((domain) => domain.id === verificationId)} />
+          <VerifyDomain key={verificationId} domain={domains.find((domain) => domain.id === verificationId)} onVerified={handleVerified} />
         ) : ruleForm ? (
           <RuleForm key={`${ruleForm.domainId}/${ruleForm.ruleId ?? 'new'}`} domain={domains.find((domain) => domain.id === ruleForm.domainId)} ruleId={ruleForm.ruleId} />
         ) : domainId ? (
-          <DomainDetail domain={domains.find((domain) => domain.id === domainId)} />
+          <DomainDetail key={domainId} domain={domains.find((domain) => domain.id === domainId)} />
         ) : (
           <>
             <div className="flex flex-wrap items-center justify-between gap-5 border-b border-line pb-7">
@@ -121,7 +140,7 @@ export default function Domains({ user, verificationId, domainId, ruleForm }) {
                           <div className="flex justify-end gap-4 whitespace-nowrap">
                             {!domain.verified && <a href={`#/dominios/${domain.id}/verificar`} className="text-link">Verificar</a>}
                             <a href={`#/dominios/${domain.id}`} className="text-link" aria-label={`Abrir ${domain.name}`}>Abrir</a>
-                            <button type="button" onClick={() => { setDeletingDomain(domain); setMessage(''); }} aria-label={`Eliminar dominio ${domain.name}`} className="rounded text-red-700 hover:underline">Eliminar</button>
+                            <button type="button" disabled={removingDomain} onClick={() => { setDeletingDomain(domain); setMessage(''); }} aria-label={`Eliminar dominio ${domain.name}`} className="rounded text-red-700 hover:underline disabled:opacity-50">Eliminar</button>
                           </div>
                         </td>
                       </tr>
@@ -138,10 +157,10 @@ export default function Domains({ user, verificationId, domainId, ruleForm }) {
         <DeleteDialog
           title="¿Eliminar dominio?"
           name={deletingDomain.name}
-          description="Se eliminarán también sus reglas, usuarios, claves y sesiones."
+          description="Se eliminarán también sus reglas, usuarios y claves."
           confirmLabel="Eliminar dominio"
           onClose={() => setDeletingDomain(null)}
-          onConfirm={() => setMessage('Eliminar dominios aún no está disponible.')}
+          onConfirm={() => deleteDomain(deletingDomain)}
         />
       )}
     </div>

@@ -10,6 +10,7 @@
     "start": "node --env-file=.env server.js",
     "dev": "node --watch --env-file=.env server.js",
     "check:firestore": "node --env-file=.env check-firestore.js",
+    "check:deployment": "node --env-file=.env check-deployment.js",
     "test": "node --test"
   },
   "dependencies": {

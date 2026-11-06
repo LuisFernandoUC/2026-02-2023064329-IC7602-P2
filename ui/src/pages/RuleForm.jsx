@@ -1,29 +1,58 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { apiRequest } from '../api.js';
 import RuleCredentials from '../components/RuleCredentials.jsx';
 
 const replacementPolicies = ['LRU', 'LFU', 'FIFO', 'MRU', 'Random'];
 
 export default function RuleForm({ domain, ruleId }) {
-  const rule = domain?.rules?.find((item) => item.id === ruleId);
-  const [fileTypes, setFileTypes] = useState(() => rule
-    ? rule.fileTypes.map((type, index) => ({ ...type, rowId: index }))
-    : [{ rowId: 0, extension: '', ttlSeconds: '', replacementPolicy: 'LRU' }]);
+  const [rule, setRule] = useState(null);
+  const [fileTypes, setFileTypes] = useState([{ rowId: 0, extension: '', ttlSeconds: '', replacementPolicy: 'LRU' }]);
   const nextRowId = useRef(fileTypes.length);
   const formRef = useRef(null);
   const [message, setMessage] = useState('');
-  const [authMode, setAuthMode] = useState(rule?.authMode ?? 'api-key');
+  const [authMode, setAuthMode] = useState('api-key');
+  const [loading, setLoading] = useState(Boolean(ruleId));
+  const [loadError, setLoadError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  if (!domain || (ruleId && !rule)) {
+  useEffect(() => {
+    if (!domain || !ruleId) return;
+    let active = true;
+    apiRequest(`/api/domains/${encodeURIComponent(domain.id)}/rules`)
+      .then((data) => {
+        if (!active) return;
+        const saved = data.find((item) => item.id === ruleId);
+        if (!saved) throw new Error('No se encontró esta regla en el dominio.');
+        setRule(saved);
+        setAuthMode(saved.authMode);
+        setFileTypes(saved.fileTypes.map((type, index) => ({ ...type, rowId: index })));
+        nextRowId.current = saved.fileTypes.length;
+      })
+      .catch((error) => { if (active) setLoadError(error.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [domain?.id, ruleId]);
+
+  if (!domain) {
     return (
       <>
         <a href="#/dominios" className="text-link text-sm">← Volver a Mis dominios</a>
         <h1 className="mt-6 text-3xl font-semibold">Regla no disponible</h1>
-        <p className="mt-4 text-muted">No se encontró el dominio o la regla en esta vista de ejemplo.</p>
+        <p className="mt-4 text-muted">No se encontró este dominio en tu cuenta.</p>
       </>
     );
   }
 
   const backUrl = `#/dominios/${domain.id}`;
+
+  if (loading || loadError) {
+    return (
+      <>
+        <a href={backUrl} className="text-link text-sm">← Volver a {domain.name}</a>
+        <p role={loadError ? 'alert' : 'status'} className="form-message mt-6">{loadError || 'Cargando regla…'}</p>
+      </>
+    );
+  }
 
   function clearValidation() {
     for (const field of formRef.current.elements) {
@@ -47,7 +76,7 @@ export default function RuleForm({ domain, ruleId }) {
     input.reportValidity();
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
     const form = event.currentTarget;
     const pathInput = form.elements.namedItem('path-pattern');
@@ -70,6 +99,7 @@ export default function RuleForm({ domain, ruleId }) {
     }
 
     const extensions = new Set();
+    const normalizedTypes = [];
 
     for (const type of fileTypes) {
       const extensionInput = form.elements.namedItem(`extension-${type.rowId}`);
@@ -92,9 +122,24 @@ export default function RuleForm({ domain, ruleId }) {
       }
 
       extensions.add(extension);
+      normalizedTypes.push({ extension, ttlSeconds: ttlInput.valueAsNumber, replacementPolicy: type.replacementPolicy });
     }
 
-    setMessage('Guardar reglas aún no está disponible.');
+    setSubmitting(true);
+    setMessage('');
+    try {
+      const path = `/api/domains/${encodeURIComponent(domain.id)}/rules${ruleId ? `/${encodeURIComponent(ruleId)}` : ''}`;
+      await apiRequest(path, {
+        method: ruleId ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pathPattern: pathInput.value.trim(), maxCacheBytes: Math.round(cacheInput.valueAsNumber * 1024 * 1024), authMode, fileTypes: normalizedTypes }),
+      });
+      window.location.hash = backUrl;
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -105,9 +150,7 @@ export default function RuleForm({ domain, ruleId }) {
         <p className="mt-3 text-sm text-muted">Dominio: <span className="font-mono font-medium text-ink">{domain.name}</span></p>
       </div>
 
-      <p className="my-5 text-sm text-muted">Vista con datos de ejemplo. Los cambios todavía no se guardan.</p>
-
-      <div className="max-w-5xl space-y-6">
+      <div className="mt-6 max-w-5xl space-y-6">
         <form
           id="rule-form"
           ref={formRef}
@@ -125,7 +168,7 @@ export default function RuleForm({ domain, ruleId }) {
               </div>
               <div>
                 <label htmlFor="cache-size" className="field-label">Tamaño máximo de caché (MB)</label>
-                <input id="cache-size" name="cache-size" type="number" min="0" step="any" defaultValue={rule ? Number.parseFloat(rule.cacheSize) : ''} required className="field-input" aria-describedby="cache-help" />
+                <input id="cache-size" name="cache-size" type="number" min="0" step="any" defaultValue={rule ? rule.maxCacheBytes / (1024 * 1024) : ''} required className="field-input" aria-describedby="cache-help" />
                 <p id="cache-help" className="mt-2 text-xs text-muted">El límite total del dominio también se aplica: {domain.cacheSize}.</p>
               </div>
             </div>
@@ -194,17 +237,17 @@ export default function RuleForm({ domain, ruleId }) {
           </fieldset>
         </form>
 
-        {rule ? (
-          <RuleCredentials key={authMode} rule={rule} authMode={authMode} />
+        {rule && authMode === rule.authMode ? (
+          <RuleCredentials key={`${rule.id}/${authMode}`} domainId={domain.id} rule={rule} authMode={authMode} />
         ) : (
-          <p className="rounded border border-line bg-soft p-4 text-sm text-muted">Guarda la regla para administrar sus claves o usuarios.</p>
+          <p className="rounded border border-line bg-soft p-4 text-sm text-muted">{rule ? 'Guarda el cambio de mecanismo de acceso para administrar sus claves o usuarios.' : 'Guarda la regla para administrar sus claves o usuarios.'}</p>
         )}
 
         {message && <p role="status" className="form-message">{message}</p>}
 
         <div className="flex justify-end gap-3 border-t border-line pt-5">
           <a href={backUrl} className="rounded border border-line bg-surface px-4 py-2.5 text-sm font-medium hover:bg-soft">Cancelar</a>
-          <button type="submit" form="rule-form" className="button-primary">Guardar regla</button>
+          <button type="submit" form="rule-form" disabled={submitting} className="button-primary">{submitting ? 'Guardando…' : 'Guardar regla'}</button>
         </div>
       </div>
     </>

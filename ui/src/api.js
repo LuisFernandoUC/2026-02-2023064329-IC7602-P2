@@ -1,6 +1,6 @@
 import { getPanelAuth } from './auth.js';
 
-export async function apiRequest(path, options = {}) {
+export async function apiRequest(path, { panelSession = true, ...options } = {}) {
   const apiUrl = import.meta.env.VITE_API_URL;
 
   if (!apiUrl) {
@@ -11,7 +11,7 @@ export async function apiRequest(path, options = {}) {
   if (url.origin !== new URL(apiUrl).origin) throw new Error('La ruta no pertenece a la API.');
 
   const headers = new Headers(options.headers);
-  const user = getPanelAuth().currentUser;
+  const user = panelSession ? getPanelAuth().currentUser : null;
   if (user) headers.set('Authorization', `Bearer ${await user.getIdToken()}`);
 
   const response = await fetch(url, { ...options, headers });

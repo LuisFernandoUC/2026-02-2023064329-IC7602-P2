@@ -94,15 +94,18 @@ flowchart LR
 | IP de cada caché | Service `<release>-zonal-cache-<zona>` | DNS: `lookup` del Service `<zonalCache.release>-zonal-cache-<zona>` | Coincide (release `zonal-cache`) |
 | Puerto que ve el cliente | Service 80 (HTTP) y 443 (HTTPS) | DNS responde solo con la IP (registro A) | Coincide |
 | Dominios atendidos | `domains[].name` de la configuración | DNS: lista fija `apache.p2.local`, `*.cdn.p2.local` | Hay que mantenerlas iguales (sección 7) |
-| Servidor de origen | `domains[].origin` | Charts: `apache-apache:80` y `rest-api-java-rest-api-java:8080`. API: el dominio **no tiene campo de origen** | Falta en API y UI |
-| Configuración | `GET ZC_CONFIG_URL` con todos los dominios | API: propuesta `GET /api/cache/config?domain=`; no está implementada | Falta en API |
-| Autenticar la caché ante el API | `Authorization: Bearer <ZC_CONFIG_TOKEN>` | API: "falta definir" | Se propone en la sección 6.1 |
-| API keys | SHA-256 en `apiKeys[]` (valida localmente) | API: guarda `keyHash`, pero dice que los hashes no se envían a las cachés; propone `POST /api/cache/authorize` | Hay que cambiar el contrato (sección 6.2) |
+| Servidor de origen | `domains[].origin` o `originUrl` | El formulario pide `originUrl` y la API lo valida y guarda al agregar el dominio | Implementado en API y UI; los dominios anteriores pueden no tenerlo |
+| Configuración | `GET ZC_CONFIG_URL` con todos los dominios | API: `GET /api/cache/config` entrega los dominios verificados y sus reglas | Implementado en API; falta conectar el despliegue |
+| Autenticar la caché ante el API | `Authorization: Bearer <ZC_CONFIG_TOKEN>` | API: compara el token con `CACHE_API_TOKEN` | Implementado; falta configurar el mismo valor en ambos |
+| API keys | SHA-256 en `apiKeys[]` (valida localmente) | API: entrega solo `keyHash` a la caché autenticada | Creación, listado de IDs y eliminación conectados a la UI |
 | Formato de reglas | `pattern`, `cacheSize`, `auth`, `fileTypes[].ttl` | API: `pathPattern`, `maxCacheBytes`, `authMode`, `ttlSeconds` | La caché acepta ambos nombres |
 | Política de reemplazo | Una por regla | UI: una por tipo de archivo | La caché usa `replacementPolicy` de la regla o la del primer tipo |
-| Login de recursos | `ZC_LOGIN_URL?domain&path&callback` → JWT HS256 | UI: `#/acceso-recurso` con datos fijos de ejemplo. API: propone `POST /api/cache/sessions` | Falta en UI y API (secciones 6.3 y 6.4) |
-| Sesión por recurso | Claim `rule` = `id` de la regla | API: "la sesión solo sirve para ese recurso" | Agregado en la caché |
-| Cierre de sesión | `/__zc/logout` borra la cookie | API: `DELETE /api/cache/sessions/current` | El JWT vence solo; la revocación es opcional |
+| Reglas públicas | `auth: none` | API: `authMode` solo acepta `api-key` o `password` | Falta en API y UI; sin esto no se puede cachear contenido público configurado desde la UI |
+| Cualquier tipo de archivo | `fileTypes[].extension: "*"` | API: la validación de extensiones rechaza `*` | Hay que listar cada extensión; las rutas sin extensión cuentan como `html` |
+| Dominios verificados | `/api/cache/config` solo entrega `verified: true` | API: `POST /api/domains/:domainId/verify` consulta el TXT | Implementado; falta probar un dominio real con DNS configurable |
+| Login de recursos | `ZC_LOGIN_URL?domain&path&callback` → JWT HS256 | UI: `#/acceso-recurso` conectado a `POST /api/cache/sessions` | Implementado; falta probar con la caché desplegada y el secreto compartido |
+| Sesión por recurso | Claim `rule` = `id` de la regla | API: firma el dominio, usuario, regla y vencimiento | Implementado en API y caché |
+| Cierre de sesión | `/__zc/logout` borra la cookie | UI: enlace al cierre en el dominio del recurso | No requiere otro endpoint en el API; el JWT vence solo |
 
 ## 4. Flujos
 
@@ -228,10 +231,13 @@ El DNS Interceptor se instala **después** de la caché, porque busca la IP de l
 | [values.yaml](../deploy/helm/zonal-cache/values.yaml) | Ejemplos de `origin` y `loginUrl` con los nombres reales. |
 | [zonal-cache.yml](../.github/workflows/zonal-cache.yml) | `helm template` con `values-local.yaml`. |
 | [zonal-cache/README.md](../zonal-cache/README.md) | Contrato actualizado: `path`, `rule`, `id` y `originUrl`. |
+| [src/util.c](../zonal-cache/src/util.c) | Valor inicial correcto de FNV-1a 64 (`14695981039346656037`); antes le faltaba un dígito y fallaba la prueba `fnv_is_deterministic`. |
+| [docker-compose.yml](../zonal-cache/docker-compose.yml) | El comando del contenedor `certs` se partía en varias líneas (bloque `>` de YAML con sangría desigual) y `openssl` no recibía `-subj` ni `-keyout`. |
+| [deploy/test-k8s.sh](../deploy/test-k8s.sh) | Script nuevo con las pruebas de integración de la sección 8. |
 
 ## 6. Cambios necesarios en el API Node.js y la UI
 
-Son propuestas para revisar con Nicole. No se modificaron sus archivos.
+El endpoint `GET /api/cache/config`, el campo `originUrl`, las operaciones de reglas de URL, las API keys y los usuarios de recursos ya están implementados. El login de recursos, la verificación TXT y la eliminación de dominios también están implementados. Falta probar el flujo con un dominio real y la caché desplegada.
 
 ### 6.1 Variables de entorno nuevas del API
 
@@ -248,184 +254,49 @@ Ambos secretos se generan una vez, por ejemplo con `openssl rand -hex 32`. Luego
 Esta estructura sigue la tabla de la sección 2 de [API-Node.md](Contratos/API-Node.md):
 
 ```text
-domains/{domainId}              ownerId, name, maxCacheBytes, verified, verificationToken, originUrl (nuevo)
+domains/{domainId}              ownerId, name, maxCacheBytes, verified, verificationToken, originUrl
   rules/{ruleId}                pathPattern, maxCacheBytes, authMode, fileTypes[], replacementPolicy (opcional)
     keys/{keyId}                keyHash = sha256(apiKey) en hexadecimal
     users/{userId}              username, passwordHash = "scrypt$<salt>$<hash>"
 ```
 
-- **`originUrl`** (nuevo) es la URL del servidor de origen que la caché consulta en un MISS, por ejemplo `http://apache-apache` dentro del cluster. Hay que pedirla al agregar el dominio en `AddDomainDialog.jsx` y validarla en `POST /api/domains`. Sin este campo la caché pediría `http://<Host>`, y eso no resuelve dentro del cluster.
-- **Hashes hacia la caché:** el contrato dice que los hashes no se envían a las cachés. Sin embargo, la caché necesita el SHA-256 de las API keys para validar `x-api-key` sin llamar al API en cada petición. Llamar al API en cada petición sumaría la latencia de Vercel a cada HIT y la caché dejaría de funcionar si el API cae.
-  - Se propone enviar solo `keyHash`, por el endpoint autenticado con `CACHE_API_TOKEN`.
+- **`originUrl`** es la dirección base del servidor que la caché consulta en un MISS, por ejemplo `http://apache-apache` dentro del cluster. El formulario la pide al agregar el dominio y `POST /api/domains` valida que use HTTP o HTTPS, sin rutas ni credenciales. Se guarda en Firestore y se entrega en `/api/cache/config`. Los dominios anteriores no se modifican automáticamente.
+- **Hashes hacia la caché:** el contrato ya permite entregar los hashes SHA-256 de las API keys para validar `x-api-key` sin llamar al API en cada petición.
+  - Se envía solo `keyHash`, por el endpoint autenticado con `CACHE_API_TOKEN`.
   - Los `passwordHash` nunca salen del API.
 - **Unicidad:** el id del documento es `<uid>_<dominio>`, así que dos cuentas pueden registrar el mismo dominio. Solo una debería quedar con `verified: true`.
 
-### 6.3 Endpoints para las cachés (`api-node/cache.js`, propuesta)
+Las reglas ya se pueden listar, crear, editar y eliminar desde la UI. La API comprueba el propietario y guarda solo sus campos de configuración bajo `domains/{domainId}/rules/{ruleId}`. La eliminación borra también sus subcolecciones. Las API keys se crean y eliminan desde la edición de la regla; solo su hash queda guardado y el listado devuelve los IDs. En las reglas con acceso por contraseña se pueden crear, editar y eliminar usuarios. Se guarda `username` y `passwordHash`; el panel recibe solo el ID y el nombre.
 
-```js
-import express from 'express';
-import { createHmac, scryptSync, timingSafeEqual } from 'node:crypto';
-import { getDb } from './firestore.js';
+### 6.3 Endpoints para las cachés
 
-const router = express.Router();
+Implementados en [cache.js](../api-node/cache.js):
 
-function safeEqual(a, b) {
-  const x = Buffer.from(a ?? ''), y = Buffer.from(b ?? '');
-  return x.length === y.length && x.length > 0 && timingSafeEqual(x, y);
-}
+- `GET /api/cache/config` exige el token de la caché y entrega los dominios verificados, sus reglas y los hashes de API keys.
+- `POST /api/cache/sessions` recibe `{ domain, path, username, password, callback }` desde el formulario público. Busca el dominio verificado y la regla más específica, valida la contraseña con scrypt y responde `201` con `{ redirect, expiresAt }`.
 
-// La caché zonal se autentica con un token propio (distinto de las API keys de los clientes).
-function requireCache(req, res, next) {
-  const token = req.get('Authorization')?.match(/^Bearer (\S+)$/i)?.[1];
-  if (!safeEqual(token, process.env.CACHE_API_TOKEN)) return res.status(401).json({ error: 'Caché no autorizada.' });
-  next();
-}
+El login elige la regla con más caracteres fijos entre todos los patrones que coinciden, igual que la caché. Esa regla debe usar `password`. No permite usar las credenciales de una regla más general para entrar en otra.
 
-// Mismo criterio que zonal-cache/src/wildcard.c: * y ?, gana el patrón con más caracteres fijos.
-const toRegExp = (p) => new RegExp('^' + p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$');
-const specificity = (p) => p.replace(/[*?]/g, '').length;
+El callback debe usar HTTP o HTTPS, apuntar a `/__zc/auth` del mismo dominio y regresar a la ruta solicitada. El token es un JWT HS256 con `domain`, `sub`, `rule` y `exp`, firmado con `CACHE_SESSION_SECRET`. La duración viene de `CACHE_SESSION_SECONDS`. La caché lo valida con `ZC_SESSION_SECRET` y lo guarda en su cookie. Las respuestas del login usan `Cache-Control: no-store`.
 
-function signSession(payload) {
-  const enc = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
-  const body = `${enc({ alg: 'HS256', typ: 'JWT' })}.${enc(payload)}`;
-  const sig = createHmac('sha256', process.env.CACHE_SESSION_SECRET).update(body).digest('base64url');
-  return `${body}.${sig}`;
-}
+El cierre usa `/__zc/logout`, que borra la cookie. No hay una ruta `DELETE /api/cache/sessions/current` ni documentos de sesiones en Firestore. Un token emitido sigue siendo válido hasta que venza. Eliminar un usuario impide nuevos logins; las eliminaciones de dominios o reglas llegan a la caché cuando actualiza su configuración.
 
-function checkPassword(password, stored) {           // stored = "scrypt$<salt hex>$<hash hex>"
-  const [, salt, hash] = String(stored).split('$');
-  if (!salt || !hash) return false;
-  return safeEqual(scryptSync(password, Buffer.from(salt, 'hex'), 64).toString('hex'), hash);
-}
-
-async function verifiedDomain(name) {
-  const snap = await getDb().collection('domains').where('name', '==', name).where('verified', '==', true).limit(1).get();
-  return snap.docs[0];
-}
-
-// GET /api/cache/config: todos los dominios verificados en el formato que lee la caché.
-router.get('/config', requireCache, async (req, res) => {
-  const domains = await getDb().collection('domains').where('verified', '==', true).get();
-  const out = await Promise.all(domains.docs.map(async (d) => {
-    const { name, originUrl, maxCacheBytes } = d.data();
-    const rules = await d.ref.collection('rules').get();
-    return {
-      name, originUrl, maxCacheBytes,
-      rules: await Promise.all(rules.docs.map(async (r) => {
-        const { pathPattern, maxCacheBytes: size, authMode, fileTypes, replacementPolicy } = r.data();
-        const keys = authMode === 'api-key' ? (await r.ref.collection('keys').get()).docs.map((k) => k.data().keyHash) : [];
-        return { id: r.id, pathPattern, maxCacheBytes: size, authMode, replacementPolicy, fileTypes, apiKeys: keys };
-      })),
-    };
-  }));
-  res.set('Cache-Control', 'no-store').json({ domains: out });
-});
-
-// POST /api/cache/sessions: login del formulario #/acceso-recurso.
-router.post('/sessions', express.json(), async (req, res) => {
-  const { domain, path, username, password, callback } = req.body ?? {};
-  if (![domain, path, username, password, callback].every((v) => typeof v === 'string' && v)) {
-    return res.status(400).json({ error: 'Faltan datos del recurso o las credenciales.' });
-  }
-
-  // El token solo se entrega al /__zc/auth del mismo dominio (evita robarlo con un callback ajeno).
-  let back;
-  try { back = new URL(callback); } catch { return res.status(400).json({ error: 'Callback inválido.' }); }
-  if (back.hostname !== domain.toLowerCase() || back.pathname !== '/__zc/auth' || !/^https?:$/.test(back.protocol)) {
-    return res.status(400).json({ error: 'Callback inválido.' });
-  }
-
-  const denied = () => res.status(401).json({ error: 'Usuario o contraseña incorrectos.' });
-  const dom = await verifiedDomain(domain.toLowerCase());
-  if (!dom) return denied();
-  const rule = (await dom.ref.collection('rules').where('authMode', '==', 'password').get()).docs
-    .filter((r) => toRegExp(r.data().pathPattern).test(path))
-    .sort((a, b) => specificity(b.data().pathPattern) - specificity(a.data().pathPattern))[0];
-  if (!rule) return denied();
-  const user = (await rule.ref.collection('users').where('username', '==', username).limit(1).get()).docs[0];
-  if (!user || !checkPassword(password, user.data().passwordHash)) return denied();
-
-  const ttl = Number(process.env.CACHE_SESSION_SECONDS) || 3600;
-  const exp = Math.floor(Date.now() / 1000) + ttl;
-  const token = signSession({ domain: domain.toLowerCase(), sub: username, rule: rule.id, exp });
-  back.searchParams.set('token', token);
-  res.status(201).json({ redirect: back.toString(), expiresAt: exp });
-});
-
-export default router;
-```
-
-En [app.js](../api-node/app.js), antes del manejador 404:
-
-```js
-import cacheRouter from './cache.js';
-app.use('/api/cache', cacheRouter);
-```
-
-Al crear un usuario de recurso (`POST /api/rules/:ruleId/users`), la contraseña se guarda así:
-
-```js
-const salt = randomBytes(16);
-const passwordHash = `scrypt$${salt.toString('hex')}$${scryptSync(password, salt, 64).toString('hex')}`;
-```
-
-Las API keys (`POST /api/rules/:ruleId/keys`) se guardan así:
-
-```js
-const apiKey = randomBytes(24).toString('base64url');           // se muestra una sola vez
-const keyHash = createHash('sha256').update(apiKey).digest('hex');
-```
-
-`DELETE /api/cache/sessions/current` no es necesario: la caché borra la cookie en `/__zc/logout` y el JWT vence solo. Si se quiere revocar antes, se puede reducir `CACHE_SESSION_SECONDS`.
+Las rutas para crear y administrar usuarios y claves están en [API-Node.md](Contratos/API-Node.md). Las contraseñas se guardan como `scrypt$<sal hexadecimal>$<hash hexadecimal>` y las API keys como SHA-256 hexadecimal. Ninguna contraseña ni hash de contraseña se entrega a la UI o la caché.
 
 ### 6.4 UI
 
-**[App.jsx](../ui/src/App.jsx).** La caché agrega parámetros después del hash (`#/acceso-recurso?domain=...`). Por eso hay que comparar la ruta sin la consulta:
+[App.jsx](../ui/src/App.jsx) reconoce `#/acceso-recurso` aunque tenga parámetros después del hash. Esa pantalla no requiere iniciar sesión en el panel.
 
-```jsx
-const [route, setRoute] = useState(window.location.hash);
-const routePath = route.split('?')[0];          // nuevo
-// ...y usar routePath en lugar de route en las comparaciones con '#/acceso-recurso'
-if (routePath === '#/acceso-recurso') return <ResourceAccess />;
-```
+[ResourceAccess.jsx](../ui/src/pages/ResourceAccess.jsx) muestra el dominio y la ruta recibidos, envía las credenciales al API y abre la dirección de regreso con el token. Si falta un enlace válido, pide abrir el recurso desde su dirección original. El enlace **Cerrar sesión del recurso** usa `/__zc/logout` del mismo dominio.
 
-**[ResourceAccess.jsx](../ui/src/pages/ResourceAccess.jsx).** Hay que reemplazar `exampleResource` y el mensaje fijo por esto:
-
-```jsx
-import { apiRequest } from '../api.js';
-
-const params = new URLSearchParams(window.location.hash.split('?')[1] ?? '');
-const resource = { domain: params.get('domain') ?? '', path: params.get('path') ?? '/', callback: params.get('callback') ?? '' };
-
-async function handleSubmit(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  // ...validación actual del usuario...
-  try {
-    const { redirect } = await apiRequest('/api/cache/sessions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...resource,
-        username: form.elements.namedItem('resource-username').value.trim(),
-        password: form.elements.namedItem('resource-password').value,
-      }),
-    });
-    window.location.assign(redirect);            // vuelve a la caché con el token
-  } catch (error) {
-    setMessage(error.message);
-  }
-}
-```
-
-Si faltan `domain` o `callback`, la página debe mostrar "Abre el recurso desde su dirección original" en vez del formulario.
+[VerifyDomain.jsx](../ui/src/pages/VerifyDomain.jsx) consulta el TXT mediante el API y actualiza el dominio en el panel si coincide. La eliminación desde [Domains.jsx](../ui/src/pages/Domains.jsx) pide confirmación y borra el dominio junto con sus subcolecciones.
 
 **[RuleForm.jsx](../ui/src/pages/RuleForm.jsx).** La caché aplica una política por regla, porque `cacheSize` es el límite de toda la regla. Hay dos opciones:
 
 - Mover el selector de política fuera de la tabla de tipos de archivo y guardarlo como `replacementPolicy` de la regla (recomendado).
 - Dejarlo por tipo de archivo, sabiendo que la caché usa la del primer tipo.
 
-**[AddDomainDialog.jsx](../ui/src/components/AddDomainDialog.jsx).** Agregar el campo "Servidor de origen" (`originUrl`).
+**[AddDomainDialog.jsx](../ui/src/components/AddDomainDialog.jsx).** El campo "Servidor de origen" (`originUrl`) ya se envía a la API. El detalle del dominio muestra el valor guardado.
 
 ## 7. DNS Interceptor
 
@@ -472,6 +343,24 @@ curl -si --resolve api.cdn.p2.local:80:<IP> http://api.cdn.p2.local/api/items   
 curl -si -H 'x-api-key: clave-valida' --resolve api.cdn.p2.local:80:<IP> http://api.cdn.p2.local/api/items
 ```
 
+Todas estas pruebas, y otras más, están automatizadas en [deploy/test-k8s.sh](../deploy/test-k8s.sh):
+
+```bash
+deploy/test-k8s.sh            # integración
+deploy/test-k8s.sh --unit     # + pruebas unitarias de la caché y del DNS Interceptor
+```
+
+El 03/11/2026, con Kubernetes de Docker Desktop, dio **47 correctas y 0 fallidas**. Cubre:
+
+- el DNS de las tres zonas, el comodín, la zona por defecto, el reenvío y el NodePort desde el equipo;
+- health, MISS y luego HIT, y la independencia de cada zona;
+- HTTPS;
+- `x-api-key` y GET/POST/PUT/DELETE de la Rest API Java;
+- los errores `404` y `508`;
+- las pruebas unitarias.
+
+Los sitios externos HTTP/HTTPS y la redirección al login no están en `values-local.yaml`; se prueban con `docker compose -f zonal-cache/docker-compose.yml up --build` (ver [zonal-cache/README.md](../zonal-cache/README.md#entorno-local-completo-con-docker-compose)).
+
 Para usar el API en lugar de `values-local.yaml`:
 
 ```bash
@@ -486,11 +375,11 @@ helm upgrade --install zonal-cache deploy/helm/zonal-cache \
 
 | Pendiente | Responsable |
 | --- | --- |
-| Implementar `GET /api/cache/config` y `POST /api/cache/sessions` (sección 6.3) | Nicole |
-| Aceptar en el contrato que `keyHash` se envíe a las cachés por el endpoint autenticado | Nicole y Fabricio |
-| Agregar `originUrl` al dominio (API y UI) | Nicole |
-| Conectar `#/acceso-recurso` al API y corregir la ruta con parámetros en `App.jsx` | Nicole |
+| Probar la verificación TXT con un dominio cuyo DNS se pueda modificar | Nicole |
+| Aceptar reglas sin autenticación (`none`) y el tipo de archivo `*` en el API y la UI | Nicole |
+| Desplegar el API y la UI en Vercel y conectar la caché con `config.url` | Nicole y Fabricio |
+| Probar el login y cierre de sesión con la caché desplegada y el secreto compartido | Nicole y Fabricio |
 | Definir si la política de reemplazo es por regla o por tipo de archivo | Nicole y Fabricio |
-| Generar `CACHE_API_TOKEN` y `CACHE_SESSION_SECRET` y configurarlos en Vercel y en el chart | Fabricio y Nicole |
+| Configurar `CACHE_API_TOKEN` y `CACHE_SESSION_SECRET` en Vercel y en el chart; ya están generados localmente | Fabricio y Nicole |
 | Sincronizar `DI_DOMAINS` con los dominios verificados | Luis Fernando y Nicole |
 | Las respuestas de la Rest API Java guardadas en caché pueden quedar viejas hasta su TTL después de un POST, PUT o DELETE | Documentado; usar TTL bajos en `/api/*` |
