@@ -111,7 +111,7 @@ Las reglas se guardan en `domains/{domainId}/rules/{ruleId}` y pueden configurar
 
 Respuestas: `200` al listar o editar, `201` al crear, `204` al eliminar, `400` para datos inválidos, `404` para un dominio ajeno o datos inexistentes y `503` si falla Firestore. Ninguna operación permite elegir otro propietario.
 
-La API conserva la política de cada tipo de archivo. La caché actual aplica una política por regla usando la del primer tipo; ese acuerdo de integración sigue pendiente en `Docs/Integracion.md`.
+La API conserva la política de cada tipo de archivo y la caché aplica cada una por separado. Los tipos comparten el límite de tamaño de la regla.
 
 ## API keys
 

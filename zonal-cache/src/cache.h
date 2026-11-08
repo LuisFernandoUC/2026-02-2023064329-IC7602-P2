@@ -4,12 +4,12 @@
  * Organización:
  *   cache (raíz en ZC_CACHE_DIR)
  *     └── dominio      límite: maxCacheSize del dominio
- *           └── partición (una por patrón de URL)   límite: cacheSize + política propia
+ *           └── partición (una por patrón de URL)   límite: cacheSize compartido
  *                 └── objetos (un archivo por respuesta guardada)
  *
  * Cada objeto se guarda en <dir>/<hash dominio>/<hash patrón>/<hash clave>-<id>.obj.
  * En memoria se mantiene un índice (clave -> archivo, tamaño, expiración) y el estado
- * de la política de reemplazo de cada partición. Todas las operaciones son seguras
+ * de la política de reemplazo de cada tipo de archivo. Todas las operaciones son seguras
  * entre hilos (un mutex global).
  */
 #ifndef ZC_CACHE_H
@@ -29,6 +29,7 @@ typedef struct {
     const char *partition;
     size_t partition_max; /* bytes máximos para la partición (URL) */
     policy_type_t policy;
+    const char *file_type; /* extensión configurada; NULL conserva el grupo único */
 } cache_scope_t;
 
 typedef struct {

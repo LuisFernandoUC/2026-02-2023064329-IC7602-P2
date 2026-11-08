@@ -99,7 +99,7 @@ flowchart LR
 | Autenticar la caché ante el API | `Authorization: Bearer <ZC_CONFIG_TOKEN>` | API: compara el token con `CACHE_API_TOKEN` | Implementado; falta configurar el mismo valor en ambos |
 | API keys | SHA-256 en `apiKeys[]` (valida localmente) | API: entrega solo `keyHash` a la caché autenticada | Creación, listado de IDs y eliminación conectados a la UI |
 | Formato de reglas | `pattern`, `cacheSize`, `auth`, `fileTypes[].ttl` | API: `pathPattern`, `maxCacheBytes`, `authMode`, `ttlSeconds` | La caché acepta ambos nombres |
-| Política de reemplazo | Una por regla | UI: una por tipo de archivo | La caché usa `replacementPolicy` de la regla o la del primer tipo |
+| Política de reemplazo | Una por tipo de archivo | UI y API: `fileTypes[].replacementPolicy` | Coincide; los tipos comparten el límite de tamaño de la regla |
 | Reglas públicas | `auth: none` | API: `authMode` solo acepta `api-key` o `password` | Falta en API y UI; sin esto no se puede cachear contenido público configurado desde la UI |
 | Cualquier tipo de archivo | `fileTypes[].extension: "*"` | API: la validación de extensiones rechaza `*` | Hay que listar cada extensión; las rutas sin extensión cuentan como `html` |
 | Dominios verificados | `/api/cache/config` solo entrega `verified: true` | API: `POST /api/domains/:domainId/verify` consulta el TXT | Implementado; falta probar un dominio real con DNS configurable |
@@ -291,10 +291,7 @@ Las rutas para crear y administrar usuarios y claves están en [API-Node.md](Con
 
 [VerifyDomain.jsx](../ui/src/pages/VerifyDomain.jsx) consulta el TXT mediante el API y actualiza el dominio en el panel si coincide. La eliminación desde [Domains.jsx](../ui/src/pages/Domains.jsx) pide confirmación y borra el dominio junto con sus subcolecciones.
 
-**[RuleForm.jsx](../ui/src/pages/RuleForm.jsx).** La caché aplica una política por regla, porque `cacheSize` es el límite de toda la regla. Hay dos opciones:
-
-- Mover el selector de política fuera de la tabla de tipos de archivo y guardarlo como `replacementPolicy` de la regla (recomendado).
-- Dejarlo por tipo de archivo, sabiendo que la caché usa la del primer tipo.
+**[RuleForm.jsx](../ui/src/pages/RuleForm.jsx).** Cada tipo de archivo conserva su TTL y su política de reemplazo. La caché aplica esa política a las entradas del mismo tipo. Todos los tipos comparten el límite de tamaño de la regla. Si un tipo todavía no tiene entradas y hace falta espacio, se usa la política del tipo que más espacio ocupa en esa regla.
 
 **[AddDomainDialog.jsx](../ui/src/components/AddDomainDialog.jsx).** El campo "Servidor de origen" (`originUrl`) ya se envía a la API. El detalle del dominio muestra el valor guardado.
 
@@ -379,7 +376,6 @@ helm upgrade --install zonal-cache deploy/helm/zonal-cache \
 | Aceptar reglas sin autenticación (`none`) y el tipo de archivo `*` en el API y la UI | Nicole |
 | Desplegar el API y la UI en Vercel y conectar la caché con `config.url` | Nicole y Fabricio |
 | Probar el login y cierre de sesión con la caché desplegada y el secreto compartido | Nicole y Fabricio |
-| Definir si la política de reemplazo es por regla o por tipo de archivo | Nicole y Fabricio |
 | Configurar `CACHE_API_TOKEN` y `CACHE_SESSION_SECRET` en Vercel y en el chart; ya están generados localmente | Fabricio y Nicole |
 | Sincronizar `DI_DOMAINS` con los dominios verificados | Luis Fernando y Nicole |
 | Las respuestas de la Rest API Java guardadas en caché pueden quedar viejas hasta su TTL después de un POST, PUT o DELETE | Documentado; usar TTL bajos en `/api/*` |

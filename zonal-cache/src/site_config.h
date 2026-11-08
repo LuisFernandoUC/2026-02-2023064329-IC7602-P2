@@ -12,9 +12,9 @@
  *       "id": "regla-1",                     // opcional; se compara con el claim "rule"
  *       "pattern": "/static/...",             // ruta; admite los comodines asterisco y ?
  *       "cacheSize": 5242880,                // bytes máximos para esta URL
- *       "policy": "LRU",                     // LRU | LFU | FIFO | MRU | RANDOM
+ *       "policy": "LRU",                     // política por defecto
  *       "auth": "none",                      // none | api_key | user_password
- *       "fileTypes": [{ "extension": "png", "ttl": 3600 }],  // "*" = cualquier tipo
+ *       "fileTypes": [{ "extension": "png", "ttl": 3600, "replacementPolicy": "FIFO" }],
  *       "apiKeys": ["<sha256 en hexadecimal>"]
  *     }]
  *   }]
@@ -36,13 +36,14 @@ typedef enum {
 typedef struct {
     char extension[16]; /* en minúsculas, sin punto; "*" = cualquiera */
     long ttl;           /* segundos */
+    policy_type_t policy; /* política del tipo de archivo */
 } file_type_rule_t;
 
 typedef struct {
     char *id; /* identificador de la regla en Firestore; NULL si no viene */
     char *pattern;
     size_t cache_size;
-    policy_type_t policy;
+    policy_type_t policy; /* valor por defecto si el tipo no declara una política */
     auth_mode_t auth;
     file_type_rule_t *file_types;
     size_t file_type_count;
@@ -81,6 +82,9 @@ const url_rule_t *domain_find_rule(const domain_rule_t *domain, const char *path
  * archivo no se debe guardar en caché. Las rutas sin extensión se tratan como "html".
  */
 long url_rule_ttl_for_path(const url_rule_t *rule, const char *path);
+
+/* Tipo configurado para la ruta; NULL si no coincide ninguna extensión. */
+const file_type_rule_t *url_rule_file_type_for_path(const url_rule_t *rule, const char *path);
 
 int auth_mode_from_string(const char *s, auth_mode_t *out);
 const char *auth_mode_to_string(auth_mode_t mode);

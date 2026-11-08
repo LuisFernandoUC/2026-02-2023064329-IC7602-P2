@@ -3,7 +3,7 @@
 Caché HTTP en disco escrita en **GNU C**. Cada zona geográfica tiene su propia instancia; el DNS Interceptor envía a cada cliente a la caché de su zona. La caché:
 
 - guarda las respuestas en disco respetando el tamaño máximo por dominio y por URL definido en Firebase;
-- aplica la política de reemplazo de cada URL: **LRU, LFU, FIFO, MRU o Random**;
+- aplica la política de reemplazo de cada tipo de archivo: **LRU, LFU, FIFO, MRU o Random**;
 - autentica con **`x-api-key`** o con **usuario y contraseña** (login en la UI y sesión verificada en cada petición);
 - hace **SSL termination** (HTTPS con OpenSSL) y habla HTTP o HTTPS con el origen;
 - recarga periódicamente su configuración desde el API Node.js.
@@ -110,13 +110,13 @@ Cada entrada guarda el momento de inserción (FIFO), el del último uso (LRU/MRU
 ```text
 ZC_CACHE_DIR/
 └── <hash del dominio>/            límite: maxCacheSize del dominio
-    └── <hash del patrón de URL>/  límite: cacheSize de la URL, política propia
+    └── <hash del patrón de URL>/  límite: cacheSize compartido por los tipos
         └── <hash de la clave>-<id>.obj
 ```
 
 - La clave de un objeto es `host + ruta + query`.
 - Cada `.obj` tiene una cabecera de texto (status, fechas, Content-Type, longitud) seguida del cuerpo.
-- Si un objeto no cabe, se expulsan entradas de su URL según la política. Si lo que se excede es el límite del dominio y esa URL está vacía, se expulsa de la URL del dominio que más espacio ocupa.
+- Si un objeto no cabe, se expulsan entradas de su tipo según su política. Si ese tipo está vacío, se usa el que más espacio ocupa en la URL, con su propia política. Si lo que se excede es el límite del dominio y esa URL está vacía, se expulsa de la URL del dominio que más espacio ocupa.
 - Un objeto más grande que el límite no se guarda, para no vaciar la caché en vano.
 - Si la UI reduce un límite, el exceso se expulsa en el siguiente acceso a esa URL.
 - Un solo mutex protege el índice, porque cada conexión se atiende en su propio hilo.
@@ -215,9 +215,9 @@ Se requiere `ZC_CONFIG_URL` o `ZC_CONFIG_FILE`.
 | `maxCacheSize` | Bytes máximos en disco para el dominio |
 | `urls[].pattern` | Ruta con comodines `*` y `?`. Gana el patrón más específico |
 | `urls[].cacheSize` | Bytes máximos para esa URL |
-| `urls[].policy` | `LRU`, `LFU`, `FIFO`, `MRU` o `RANDOM` (por defecto `LRU`) |
+| `urls[].policy` | Política por defecto para los tipos que no tienen una propia: `LRU`, `LFU`, `FIFO`, `MRU` o `RANDOM` (por defecto `LRU`) |
 | `urls[].auth` | `none`, `api_key` o `user_password` |
-| `urls[].fileTypes` | Extensión y TTL en segundos. `*` = cualquier tipo; TTL `0` = no guardar. Las rutas sin extensión cuentan como `html` |
+| `urls[].fileTypes` | Extensión, TTL en segundos y `replacementPolicy` por tipo. `*` = cualquier tipo; TTL `0` = no guardar. Las rutas sin extensión cuentan como `html` |
 | `urls[].apiKeys` | SHA-256 de cada API key válida (cadenas, u objetos `{ "hash": "..." }`) |
 
 También se aceptan los nombres de campos del borrador del API Node.js ([Docs/Contratos/API-Node.md](../Docs/Contratos/API-Node.md)), así la caché funciona con cualquiera de los dos formatos mientras se cierra el contrato:
@@ -231,7 +231,7 @@ También se aceptan los nombres de campos del borrador del API Node.js ([Docs/Co
 | `cacheSize` (URL) | `maxCacheBytes` |
 | `auth` | `authMode` (`api-key`, `password`) |
 | `fileTypes[].ttl` | `fileTypes[].ttlSeconds` |
-| `policy` | `replacementPolicy` en la regla, o `fileTypes[0].replacementPolicy` si la regla no define ninguna |
+| `policy` | `replacementPolicy` en la regla, como valor por defecto; cada `fileTypes[].replacementPolicy` tiene prioridad para su tipo |
 | `apiKeys[].hash` | `apiKeys[].keyHash` |
 
 Solo se guardan respuestas `200` a `GET` cuyo tipo de archivo tiene TTL y que el origen no marcó con `Cache-Control: no-store` o `private`. El resto pasa directo al origen (`X-Cache: BYPASS`).
@@ -240,7 +240,7 @@ Solo se guardan respuestas `200` a `GET` cuyo tipo de archivo tiene TTL y que el
 
 - El API solo acepta `authMode` `api-key` o `password`. La caché también soporta `none`, pero desde la UI todavía no se puede crear una regla pública. Una ruta sin regla se sirve, pero como `BYPASS`, sin guardarse.
 - El API no acepta el tipo de archivo `*`, así que hay que listar cada extensión. Las rutas sin extensión (`/`, `/api/items`) cuentan como `html`.
-- La UI define una política por tipo de archivo; la caché aplica la del primer tipo, porque el límite de tamaño es de la regla completa.
+- La UI y la caché usan una política por tipo de archivo. El límite de tamaño sigue siendo el total de la regla; no se multiplica por la cantidad de tipos.
 - `ttlSeconds: 0` significa "no guardar ese tipo".
 
 Las API keys se guardan como hash: el API nunca debe mandar la clave en texto plano. En Node.js:
@@ -352,7 +352,7 @@ El workflow [.github/workflows/zonal-cache.yml](../.github/workflows/zonal-cache
 
 El flujo completo se prueba sin red: [tests/test_proxy.c](tests/test_proxy.c) reemplaza el origen por una función falsa (`origin_fetch_fn`).
 
-Resultado actual: **98 pruebas, 0 fallidas**.
+Resultado actual: **102 pruebas, 0 fallidas**. Incluyen políticas distintas para HTML y CSS en una misma regla, los límites compartidos de URL y dominio y el cambio de política sin reiniciar la caché.
 
 ### Pruebas de integración en Kubernetes
 
@@ -406,7 +406,7 @@ kubectl get svc -l app.kubernetes.io/name=zonal-cache   # IPs para el DNS Interc
 | Configuración desde Firebase (vía API Node.js) con recarga periódica | Implementado en la caché, y `GET /api/cache/config` existe en el API. Mientras el API no marque dominios como verificados (TXT), las pruebas usan `config.inline` (`values-local.yaml`) |
 | Origen HTTP y HTTPS | Implementado y probado (Apache, Rest API Java, example.com, wikipedia) |
 | Dockerfile, Docker Compose y Helm Chart | Implementado y probado en Kubernetes de Docker Desktop |
-| Pruebas unitarias | 98 pruebas, 0 fallidas |
+| Pruebas unitarias | 102 pruebas, 0 fallidas |
 | Pruebas de integración en Kubernetes | [deploy/test-k8s.sh](../deploy/test-k8s.sh) |
 
 ## 10. Créditos

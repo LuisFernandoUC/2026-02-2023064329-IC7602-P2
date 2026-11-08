@@ -309,14 +309,16 @@ static void serve_from_cache(const proxy_t *px, const cache_object_t *obj, time_
 }
 
 /* Límites y política con los que se guarda una respuesta de la regla. */
-static cache_scope_t make_scope(const domain_rule_t *dom, const url_rule_t *rule)
+static cache_scope_t make_scope(const domain_rule_t *dom, const url_rule_t *rule,
+                                const file_type_rule_t *type)
 {
     cache_scope_t scope = {
         .domain = dom->name,
         .domain_max = dom->max_cache_size,
         .partition = rule->pattern,
         .partition_max = rule->cache_size,
-        .policy = rule->policy,
+        .policy = type->policy,
+        .file_type = type->extension,
     };
     return scope;
 }
@@ -397,14 +399,15 @@ void proxy_handle(const proxy_t *px, const site_config_t *cfg, const http_reques
         return;
     }
 
-    long ttl = rule ? url_rule_ttl_for_path(rule, req->path) : -1;
+    const file_type_rule_t *type = rule ? url_rule_file_type_for_path(rule, req->path) : NULL;
+    long ttl = type ? type->ttl : -1;
     int cacheable = rule && ttl > 0 && strcmp(req->method, "GET") == 0;
 
     char key[MAX_URL];
     snprintf(key, sizeof(key), "%s%s", host, req->target);
     cache_scope_t scope = {0};
     if (cacheable) {
-        scope = make_scope(dom, rule);
+        scope = make_scope(dom, rule, type);
         cache_object_t obj;
         if (cache_get(px->cache, &scope, key, rc->now, &obj) == 1) {
             serve_from_cache(px, &obj, rc->now, resp);

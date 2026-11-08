@@ -135,14 +135,15 @@ TEST(accepts_api_node_field_names)
     CHECK_EQ_STR(r->pattern, "/imagenes/*");
     CHECK_EQ_INT(r->cache_size, 1024);
     CHECK_EQ_INT(r->auth, AUTH_API_KEY);
-    CHECK_EQ_INT(r->policy, POLICY_MRU); /* tomada de replacementPolicy */
+    CHECK_EQ_INT(r->policy, POLICY_LRU); /* valor por defecto de la regla */
+    CHECK_EQ_INT(r->file_types[0].policy, POLICY_MRU);
     CHECK_EQ_INT(url_rule_ttl_for_path(r, "/imagenes/a.png"), 3600);
     CHECK_EQ_INT(r->api_key_count, 1);
     CHECK_EQ_STR(r->api_key_hashes[0], "abc");
     site_config_free(cfg);
 }
 
-TEST(explicit_policy_wins_over_file_type_policy)
+TEST(file_type_policy_overrides_rule_default)
 {
     const char *json =
         "{ \"domains\": [ { \"name\": \"a\", \"maxCacheSize\": 1, \"urls\": [ { \"pattern\": \"/*\","
@@ -150,13 +151,47 @@ TEST(explicit_policy_wins_over_file_type_policy)
         "  \"fileTypes\": [ { \"extension\": \"png\", \"ttl\": 1, \"replacementPolicy\": \"MRU\" } ] } ] } ] }";
     site_config_t *cfg = site_config_parse(json, NULL, 0);
     CHECK(cfg != NULL);
-    if (cfg)
+    if (cfg) {
         CHECK_EQ_INT(cfg->domains[0].rules[0].policy, POLICY_FIFO);
+        CHECK_EQ_INT(cfg->domains[0].rules[0].file_types[0].policy, POLICY_MRU);
+    }
     site_config_free(cfg);
 
     const char *bad =
         "{ \"domains\": [ { \"name\": \"a\", \"maxCacheSize\": 1, \"urls\": [ { \"pattern\": \"/*\","
         "  \"cacheSize\": 1, \"fileTypes\": [ { \"extension\": \"png\", \"ttl\": 1, \"replacementPolicy\": \"ARC\" } ] } ] } ] }";
+    CHECK(site_config_parse(bad, NULL, 0) == NULL);
+}
+
+TEST(looks_up_ttl_and_policy_for_each_file_type)
+{
+    const char *json =
+        "{\"domains\":[{\"name\":\"a\",\"maxCacheSize\":1000,\"urls\":[{"
+        "\"pattern\":\"/*\",\"cacheSize\":1000,\"policy\":\"LFU\",\"fileTypes\":["
+        "{\"extension\":\"html\",\"ttl\":60,\"replacementPolicy\":\"LRU\"},"
+        "{\"extension\":\"css\",\"ttl\":300,\"replacementPolicy\":\"FIFO\"},"
+        "{\"extension\":\"js\",\"ttl\":0},"
+        "{\"extension\":\"*\",\"ttl\":10,\"replacementPolicy\":\"MRU\"}]}]}]}";
+    site_config_t *cfg = site_config_parse(json, NULL, 0);
+    CHECK(cfg != NULL);
+    if (!cfg)
+        return;
+    const url_rule_t *r = &cfg->domains[0].rules[0];
+    CHECK_EQ_INT(url_rule_file_type_for_path(r, "/")->policy, POLICY_LRU);
+    CHECK_EQ_INT(url_rule_ttl_for_path(r, "/"), 60);
+    CHECK_EQ_INT(url_rule_file_type_for_path(r, "/style.CSS")->policy, POLICY_FIFO);
+    CHECK_EQ_INT(url_rule_ttl_for_path(r, "/style.css"), 300);
+    CHECK_EQ_INT(url_rule_file_type_for_path(r, "/app.js")->policy, POLICY_LFU);
+    CHECK_EQ_INT(url_rule_ttl_for_path(r, "/app.js"), -1);
+    CHECK_EQ_INT(url_rule_file_type_for_path(r, "/image.png")->policy, POLICY_MRU);
+    CHECK_EQ_INT(url_rule_ttl_for_path(r, "/image.png"), 10);
+    site_config_free(cfg);
+
+    const char *bad =
+        "{\"domains\":[{\"name\":\"a\",\"maxCacheSize\":1,\"urls\":[{"
+        "\"pattern\":\"/*\",\"cacheSize\":1,\"fileTypes\":["
+        "{\"extension\":\"html\",\"ttl\":1,\"replacementPolicy\":\"LRU\"},"
+        "{\"extension\":\"css\",\"ttl\":1,\"replacementPolicy\":\"ARC\"}]}]}]}";
     CHECK(site_config_parse(bad, NULL, 0) == NULL);
 }
 
@@ -173,7 +208,8 @@ TEST(reads_origin_url_rule_id_and_rule_policy)
         return;
     CHECK_EQ_STR(cfg->domains[0].origin, "http://apache-apache"); /* sin "/" final */
     CHECK_EQ_STR(cfg->domains[0].rules[0].id, "r1");
-    CHECK_EQ_INT(cfg->domains[0].rules[0].policy, POLICY_LFU); /* la de la regla gana */
+    CHECK_EQ_INT(cfg->domains[0].rules[0].policy, POLICY_LFU); /* valor por defecto */
+    CHECK_EQ_INT(cfg->domains[0].rules[0].file_types[0].policy, POLICY_MRU);
     site_config_free(cfg);
 }
 
@@ -199,7 +235,8 @@ void suite_site_config(void)
     RUN(rejects_invalid_configs);
     RUN(empty_domain_list_is_valid);
     RUN(accepts_api_node_field_names);
-    RUN(explicit_policy_wins_over_file_type_policy);
+    RUN(file_type_policy_overrides_rule_default);
+    RUN(looks_up_ttl_and_policy_for_each_file_type);
     RUN(reads_origin_url_rule_id_and_rule_policy);
     RUN(auth_mode_names);
 }

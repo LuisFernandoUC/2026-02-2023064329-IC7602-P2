@@ -389,7 +389,7 @@ Recomendación del enunciado: usar `nslookup` para el DNS Interceptor y Postman/
 1. Separar la lógica del proxy de los sockets (`proxy_handle` recibe una función de origen) permitió probar el flujo completo de la caché sin red, con un origen falso.
 2. EDNS Client Subnet hace posible probar la geolocalización desde una sola máquina: sin esa extensión, todas las consultas llegarían con la IP privada del cluster y caerían en la zona por defecto.
 3. La caché solo ofrece garantías reales si TTL y política de reemplazo trabajan juntos: el TTL decide cuándo un objeto deja de ser válido y la política decide quién sale cuando falta espacio.
-4. Dar a cada regla de URL su propia partición, con límite y política propios, evita que una ruta muy activa expulse el contenido de las demás rutas del dominio.
+4. Cada regla de URL tiene un límite compartido por sus tipos de archivo. Cada tipo usa su política de reemplazo, sin multiplicar el espacio permitido para la regla.
 5. Guardar solo el SHA-256 de las API keys y compararlo en tiempo constante protege las claves aunque se filtre la configuración.
 6. Validar las sesiones con un JWT firmado permite autenticar cada petición sin consultar al API, a cambio de no poder revocar una sesión antes de que venza.
 7. La SSL termination simplifica los orígenes, que no necesitan certificados, y concentra el manejo de TLS en un solo componente.

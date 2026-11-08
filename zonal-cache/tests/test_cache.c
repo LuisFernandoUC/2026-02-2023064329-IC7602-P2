@@ -8,7 +8,7 @@
 /* Tamaño en disco de un objeto con cuerpo de body_len bytes y la metadata usada abajo. */
 static size_t object_size(zc_cache_t *c, size_t body_len)
 {
-    cache_scope_t s = {"probe", 1 << 20, "/*", 1 << 20, POLICY_LRU};
+    cache_scope_t s = {"probe", 1 << 20, "/*", 1 << 20, POLICY_LRU, NULL};
     char *body = calloc(1, body_len + 1);
     cache_object_t o = {.status = 200, .content_type = "text/plain", .body = (unsigned char *)body,
                         .body_len = body_len, .stored_at = 100, .expires_at = 200};
@@ -55,7 +55,7 @@ TEST(put_then_get_roundtrip)
     char dir[256];
     test_tmpdir(dir, sizeof(dir));
     zc_cache_t *c = cache_create(dir, 1);
-    cache_scope_t s = {"a.com", 10000, "/*", 10000, POLICY_LRU};
+    cache_scope_t s = {"a.com", 10000, "/*", 10000, POLICY_LRU, NULL};
 
     CHECK_EQ_INT(put(c, &s, "a.com/x", "contenido", 500), CACHE_STORED);
     cache_object_t o;
@@ -77,7 +77,7 @@ TEST(binary_body_is_preserved)
     char dir[256];
     test_tmpdir(dir, sizeof(dir));
     zc_cache_t *c = cache_create(dir, 1);
-    cache_scope_t s = {"a.com", 10000, "/*", 10000, POLICY_LRU};
+    cache_scope_t s = {"a.com", 10000, "/*", 10000, POLICY_LRU, NULL};
     unsigned char bin[256];
     for (int i = 0; i < 256; i++)
         bin[i] = (unsigned char)i;
@@ -97,7 +97,7 @@ TEST(expired_entries_are_removed)
     char dir[256];
     test_tmpdir(dir, sizeof(dir));
     zc_cache_t *c = cache_create(dir, 1);
-    cache_scope_t s = {"a.com", 10000, "/*", 10000, POLICY_LRU};
+    cache_scope_t s = {"a.com", 10000, "/*", 10000, POLICY_LRU, NULL};
     put(c, &s, "k", "x", 200);
     cache_object_t o;
     CHECK_EQ_INT(cache_get(c, &s, "k", 200, &o), 0); /* expires_at <= now */
@@ -112,7 +112,7 @@ TEST(replacing_key_updates_usage)
     char dir[256];
     test_tmpdir(dir, sizeof(dir));
     zc_cache_t *c = cache_create(dir, 1);
-    cache_scope_t s = {"a.com", 10000, "/*", 10000, POLICY_LRU};
+    cache_scope_t s = {"a.com", 10000, "/*", 10000, POLICY_LRU, NULL};
     put(c, &s, "k", "corto", 500);
     size_t first = cache_partition_usage(c, "a.com", "/*");
     put(c, &s, "k", "mucho mas largo", 500);
@@ -129,7 +129,7 @@ TEST(partition_limit_evicts_with_lru)
     test_tmpdir(dir, sizeof(dir));
     zc_cache_t *c = cache_create(dir, 1);
     size_t one = object_size(c, 4);
-    cache_scope_t s = {"a.com", 100000, "/*", one * 3, POLICY_LRU};
+    cache_scope_t s = {"a.com", 100000, "/*", one * 3, POLICY_LRU, NULL};
     put(c, &s, "k1", "1111", 500);
     put(c, &s, "k2", "2222", 500);
     put(c, &s, "k3", "3333", 500);
@@ -167,7 +167,7 @@ TEST(each_policy_evicts_expected_key)
         test_tmpdir(dir, sizeof(dir));
         zc_cache_t *c = cache_create(dir, 1);
         size_t one = object_size(c, 4);
-        cache_scope_t s = {"a.com", 100000, "/*", one * 4, cases[i].policy};
+        cache_scope_t s = {"a.com", 100000, "/*", one * 4, cases[i].policy, NULL};
         for (size_t k = 0; k < 4; k++)
             put(c, &s, keys[k], "xxxx", 500);
         for (size_t k = 0; k < sizeof(accesses) / sizeof(accesses[0]); k++) {
@@ -190,13 +190,76 @@ TEST(each_policy_evicts_expected_key)
     }
 }
 
+TEST(file_types_keep_their_policies_and_share_the_url_limit)
+{
+    char dir[256];
+    test_tmpdir(dir, sizeof(dir));
+    zc_cache_t *c = cache_create(dir, 1);
+    size_t one = object_size(c, 4);
+    cache_scope_t html = {"a.com", one * 10, "/*", one * 4, POLICY_LRU, "html"};
+    cache_scope_t css = {"a.com", one * 10, "/*", one * 4, POLICY_FIFO, "css"};
+    put(c, &html, "h1", "xxxx", 500);
+    put(c, &html, "h2", "xxxx", 500);
+    put(c, &css, "c1", "xxxx", 500);
+    put(c, &css, "c2", "xxxx", 500);
+    cache_object_t o;
+    CHECK_EQ_INT(cache_get(c, &html, "h1", 150, &o), 1);
+    cache_object_free(&o);
+    CHECK_EQ_INT(cache_get(c, &css, "c1", 150, &o), 1);
+    cache_object_free(&o);
+    CHECK_EQ_INT(put(c, &html, "h3", "xxxx", 500), CACHE_STORED);
+    CHECK_EQ_INT(put(c, &css, "c3", "xxxx", 500), CACHE_STORED);
+    CHECK(cache_contains(c, "a.com", "/*", "h1"));
+    CHECK(!cache_contains(c, "a.com", "/*", "h2")); /* LRU */
+    CHECK(!cache_contains(c, "a.com", "/*", "c1")); /* FIFO, aunque tuvo un acceso */
+    CHECK(cache_contains(c, "a.com", "/*", "c2"));
+    CHECK_EQ_INT(cache_partition_count(c, "a.com", "/*"), 4);
+    CHECK(cache_partition_usage(c, "a.com", "/*") <= html.partition_max);
+
+    html.policy = POLICY_MRU; /* Cambio desde la UI sin perder la historia. */
+    CHECK_EQ_INT(put(c, &html, "h4", "xxxx", 500), CACHE_STORED);
+    CHECK(!cache_contains(c, "a.com", "/*", "h3"));
+    CHECK(cache_contains(c, "a.com", "/*", "h1"));
+    CHECK(cache_contains(c, "a.com", "/*", "c2"));
+    cache_destroy(c);
+}
+
+TEST(new_file_type_respects_shared_url_and_domain_limits)
+{
+    for (int domain_limit = 0; domain_limit < 2; domain_limit++) {
+        char dir[256];
+        test_tmpdir(dir, sizeof(dir));
+        zc_cache_t *c = cache_create(dir, 1);
+        size_t one = object_size(c, 4);
+        cache_scope_t html = {"a.com", one * (domain_limit ? 3 : 10), "/*",
+                             one * (domain_limit ? 10 : 3), POLICY_MRU, "html"};
+        cache_scope_t css = html;
+        css.file_type = "css";
+        css.policy = POLICY_FIFO;
+        put(c, &html, "h1", "xxxx", 500);
+        put(c, &html, "h2", "xxxx", 500);
+        put(c, &html, "h3", "xxxx", 500);
+        cache_object_t o;
+        CHECK_EQ_INT(cache_get(c, &html, "h1", 150, &o), 1);
+        cache_object_free(&o);
+        CHECK_EQ_INT(put(c, &css, "c1", "xxxx", 500), CACHE_STORED);
+        CHECK(!cache_contains(c, "a.com", "/*", "h1")); /* MRU del tipo que cede espacio */
+        CHECK(cache_contains(c, "a.com", "/*", "h2"));
+        CHECK(cache_contains(c, "a.com", "/*", "h3"));
+        CHECK(cache_contains(c, "a.com", "/*", "c1"));
+        CHECK(cache_partition_usage(c, "a.com", "/*") <= css.partition_max);
+        CHECK(cache_domain_usage(c, "a.com") <= css.domain_max);
+        cache_destroy(c);
+    }
+}
+
 TEST(random_policy_keeps_limit)
 {
     char dir[256];
     test_tmpdir(dir, sizeof(dir));
     zc_cache_t *c = cache_create(dir, 7);
     size_t one = object_size(c, 4);
-    cache_scope_t s = {"a.com", 100000, "/*", one * 5, POLICY_RANDOM};
+    cache_scope_t s = {"a.com", 100000, "/*", one * 5, POLICY_RANDOM, NULL};
     char key[16];
     for (int i = 0; i < 50; i++) {
         snprintf(key, sizeof(key), "k%02d", i);
@@ -214,8 +277,8 @@ TEST(domain_limit_spans_partitions)
     test_tmpdir(dir, sizeof(dir));
     zc_cache_t *c = cache_create(dir, 1);
     size_t one = object_size(c, 4);
-    cache_scope_t img = {"a.com", one * 3, "/img/*", one * 10, POLICY_FIFO};
-    cache_scope_t css = {"a.com", one * 3, "/css/*", one * 10, POLICY_FIFO};
+    cache_scope_t img = {"a.com", one * 3, "/img/*", one * 10, POLICY_FIFO, NULL};
+    cache_scope_t css = {"a.com", one * 3, "/css/*", one * 10, POLICY_FIFO, NULL};
     put(c, &img, "i1", "1111", 500);
     put(c, &img, "i2", "2222", 500);
     put(c, &img, "i3", "3333", 500);
@@ -237,8 +300,8 @@ TEST(domains_are_independent)
     test_tmpdir(dir, sizeof(dir));
     zc_cache_t *c = cache_create(dir, 1);
     size_t one = object_size(c, 4);
-    cache_scope_t a = {"a.com", one, "/*", one, POLICY_LRU};
-    cache_scope_t b = {"b.com", one, "/*", one, POLICY_LRU};
+    cache_scope_t a = {"a.com", one, "/*", one, POLICY_LRU, NULL};
+    cache_scope_t b = {"b.com", one, "/*", one, POLICY_LRU, NULL};
     put(c, &a, "k", "aaaa", 500);
     put(c, &b, "k", "bbbb", 500);
     cache_object_t o;
@@ -256,7 +319,7 @@ TEST(object_larger_than_limit_is_not_stored)
     char dir[256];
     test_tmpdir(dir, sizeof(dir));
     zc_cache_t *c = cache_create(dir, 1);
-    cache_scope_t s = {"a.com", 10000, "/*", 50, POLICY_LRU};
+    cache_scope_t s = {"a.com", 10000, "/*", 50, POLICY_LRU, NULL};
     put(c, &s, "k1", "a", 500);
     char big[200];
     memset(big, 'x', sizeof(big) - 1);
@@ -264,7 +327,7 @@ TEST(object_larger_than_limit_is_not_stored)
     CHECK_EQ_INT(put(c, &s, "k2", big, 500), CACHE_TOO_LARGE);
     CHECK(cache_contains(c, "a.com", "/*", "k1")); /* no se vació la caché por nada */
     CHECK(!cache_contains(c, "a.com", "/*", "k2"));
-    cache_scope_t small_domain = {"a.com", 10, "/*", 10000, POLICY_LRU};
+    cache_scope_t small_domain = {"a.com", 10, "/*", 10000, POLICY_LRU, NULL};
     CHECK_EQ_INT(put(c, &small_domain, "k3", "abc", 500), CACHE_TOO_LARGE);
     cache_destroy(c);
 }
@@ -275,7 +338,7 @@ TEST(shrinking_limit_from_config_evicts_on_access)
     test_tmpdir(dir, sizeof(dir));
     zc_cache_t *c = cache_create(dir, 1);
     size_t one = object_size(c, 4);
-    cache_scope_t s = {"a.com", one * 10, "/*", one * 4, POLICY_FIFO};
+    cache_scope_t s = {"a.com", one * 10, "/*", one * 4, POLICY_FIFO, NULL};
     put(c, &s, "k1", "1111", 500);
     put(c, &s, "k2", "2222", 500);
     put(c, &s, "k3", "3333", 500);
@@ -293,7 +356,7 @@ TEST(missing_file_is_treated_as_miss)
     char dir[256];
     test_tmpdir(dir, sizeof(dir));
     zc_cache_t *c = cache_create(dir, 1);
-    cache_scope_t s = {"a.com", 10000, "/*", 10000, POLICY_LRU};
+    cache_scope_t s = {"a.com", 10000, "/*", 10000, POLICY_LRU, NULL};
     put(c, &s, "k", "x", 500);
     char cmd[512];
     snprintf(cmd, sizeof(cmd), "find '%s' -name '*.obj' -delete", dir);
@@ -326,6 +389,8 @@ void suite_cache(void)
     RUN(replacing_key_updates_usage);
     RUN(partition_limit_evicts_with_lru);
     RUN(each_policy_evicts_expected_key);
+    RUN(file_types_keep_their_policies_and_share_the_url_limit);
+    RUN(new_file_type_respects_shared_url_and_domain_limits);
     RUN(random_policy_keeps_limit);
     RUN(domain_limit_spans_partitions);
     RUN(domains_are_independent);

@@ -26,11 +26,19 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+typedef struct type_policy {
+    char name[16];
+    size_t used;
+    policy_t *policy;
+    struct type_policy *next;
+} type_policy_t;
+
 typedef struct {
     char *key;
     char *file;
     size_t size;
     time_t expires_at;
+    type_policy_t *type;
 } entry_t;
 
 typedef struct {
@@ -38,7 +46,7 @@ typedef struct {
     char *dir;
     size_t max;
     size_t used;
-    policy_t *policy;
+    type_policy_t *types;
     entry_t *entries;
     size_t count;
     size_t cap;
@@ -117,7 +125,12 @@ static void free_partition(partition_t *p)
         free(p->entries[i].file);
     }
     free(p->entries);
-    policy_destroy(p->policy);
+    while (p->types) {
+        type_policy_t *next = p->types->next;
+        policy_destroy(p->types->policy);
+        free(p->types);
+        p->types = next;
+    }
     free(p->name);
     free(p->dir);
     free(p);
@@ -166,8 +179,7 @@ static domain_t *find_domain(zc_cache_t *c, const char *name, int create)
     return d;
 }
 
-static partition_t *find_partition(zc_cache_t *c, domain_t *d, const char *name,
-                                   policy_type_t policy, int create)
+static partition_t *find_partition(domain_t *d, const char *name, int create)
 {
     for (size_t i = 0; i < d->count; i++)
         if (strcmp(d->parts[i]->name, name) == 0)
@@ -179,13 +191,32 @@ static partition_t *find_partition(zc_cache_t *c, domain_t *d, const char *name,
         return NULL;
     p->name = zc_strndup(name, strlen(name));
     p->dir = hashed_child(d->dir, name);
-    p->policy = policy_create(policy, c->seed + (unsigned int)d->count);
-    if (!p->name || !p->dir || !p->policy) {
+    if (!p->name || !p->dir) {
         free_partition(p);
         return NULL;
     }
     d->parts[d->count++] = p;
     return p;
+}
+
+static type_policy_t *find_type(zc_cache_t *c, partition_t *p, const cache_scope_t *s)
+{
+    const char *name = s->file_type ? s->file_type : "";
+    for (type_policy_t *type = p->types; type; type = type->next)
+        if (strcmp(type->name, name) == 0)
+            return type;
+    type_policy_t *type = calloc(1, sizeof(*type));
+    if (!type)
+        return NULL;
+    zc_strlcpy(type->name, name, sizeof(type->name));
+    type->policy = policy_create(s->policy, c->seed);
+    if (!type->policy) {
+        free(type);
+        return NULL;
+    }
+    type->next = p->types;
+    p->types = type;
+    return type;
 }
 
 static long find_entry(const partition_t *p, const char *key)
@@ -202,22 +233,30 @@ static void remove_entry(domain_t *d, partition_t *p, size_t idx)
     unlink(e->file);
     p->used -= e->size;
     d->used -= e->size;
-    policy_on_remove(p->policy, e->key);
+    e->type->used -= e->size;
+    policy_on_remove(e->type->policy, e->key);
     free(e->key);
     free(e->file);
     p->entries[idx] = p->entries[p->count - 1];
     p->count--;
 }
 
-/* Saca una víctima de la partición según su política. Devuelve 0 si sacó algo. */
-static int evict_from(domain_t *d, partition_t *p)
+/* Primero el tipo solicitado; si está vacío, el que más espacio ocupa. */
+static int evict_from(domain_t *d, partition_t *p, type_policy_t *preferred)
 {
-    const char *victim = policy_pick_victim(p->policy);
+    type_policy_t *type = preferred;
+    if (!type || policy_count(type->policy) == 0) {
+        type = NULL;
+        for (type_policy_t *candidate = p->types; candidate; candidate = candidate->next)
+            if (candidate->used > 0 && (!type || candidate->used > type->used))
+                type = candidate;
+    }
+    const char *victim = type ? policy_pick_victim(type->policy) : NULL;
     if (!victim)
         return -1;
     long idx = find_entry(p, victim);
     if (idx < 0) {
-        policy_on_remove(p->policy, victim); /* estado inconsistente: se corrige */
+        policy_on_remove(type->policy, victim); /* estado inconsistente: se corrige */
         return 0;
     }
     remove_entry(d, p, (size_t)idx);
@@ -228,30 +267,31 @@ static int evict_from(domain_t *d, partition_t *p)
  * Libera espacio en el dominio: primero en la partición preferida y, si está vacía,
  * en la partición del dominio que más espacio ocupa.
  */
-static int evict_for_domain(domain_t *d, partition_t *preferred)
+static int evict_for_domain(domain_t *d, partition_t *preferred, type_policy_t *type)
 {
     if (preferred && preferred->count > 0)
-        return evict_from(d, preferred);
+        return evict_from(d, preferred, type);
     partition_t *largest = NULL;
     for (size_t i = 0; i < d->count; i++)
         if (d->parts[i]->count > 0 && (!largest || d->parts[i]->used > largest->used))
             largest = d->parts[i];
-    return largest ? evict_from(d, largest) : -1;
+    return largest ? evict_from(d, largest, NULL) : -1;
 }
 
 /* Actualiza límites y política (pueden cambiar desde la UI) y los hace cumplir. */
-static void apply_scope(domain_t *d, partition_t *p, const cache_scope_t *s, size_t incoming)
+static void apply_scope(domain_t *d, partition_t *p, type_policy_t *type,
+                         const cache_scope_t *s, size_t incoming)
 {
     d->max = s->domain_max;
     p->max = s->partition_max;
-    if (policy_get_type(p->policy) != s->policy)
-        policy_set_type(p->policy, s->policy);
+    if (policy_get_type(type->policy) != s->policy)
+        policy_set_type(type->policy, s->policy);
 
     while (p->count > 0 && p->used + incoming > p->max)
-        if (evict_from(d, p) != 0)
+        if (evict_from(d, p, type) != 0)
             break;
     while (d->used + incoming > d->max)
-        if (evict_for_domain(d, p) != 0)
+        if (evict_for_domain(d, p, type) != 0)
             break;
 }
 
@@ -366,10 +406,13 @@ int cache_get(zc_cache_t *c, const cache_scope_t *s, const char *key, time_t now
     int result = 0;
     pthread_mutex_lock(&c->lock);
     domain_t *d = find_domain(c, s->domain, 0);
-    partition_t *p = d ? find_partition(c, d, s->partition, s->policy, 0) : NULL;
+    partition_t *p = d ? find_partition(d, s->partition, 0) : NULL;
     if (!p)
         goto done;
-    apply_scope(d, p, s, 0);
+    type_policy_t *type = find_type(c, p, s);
+    if (!type)
+        goto done;
+    apply_scope(d, p, type, s, 0);
 
     long idx = find_entry(p, key);
     if (idx < 0)
@@ -383,7 +426,19 @@ int cache_get(zc_cache_t *c, const cache_scope_t *s, const char *key, time_t now
         result = -1;
         goto done;
     }
-    policy_on_access(p->policy, key);
+    entry_t *entry = &p->entries[idx];
+    if (entry->type != type) {
+        if (policy_on_insert(type->policy, key) != 0) {
+            cache_object_free(out);
+            result = -1;
+            goto done;
+        }
+        policy_on_remove(entry->type->policy, key);
+        entry->type->used -= entry->size;
+        type->used += entry->size;
+        entry->type = type;
+    }
+    policy_on_access(type->policy, key);
     result = 1;
 done:
     pthread_mutex_unlock(&c->lock);
@@ -402,8 +457,12 @@ cache_put_result_t cache_put(zc_cache_t *c, const cache_scope_t *s, const char *
 
     pthread_mutex_lock(&c->lock);
     domain_t *d = find_domain(c, s->domain, 1);
-    partition_t *p = d ? find_partition(c, d, s->partition, s->policy, 1) : NULL;
+    partition_t *p = d ? find_partition(d, s->partition, 1) : NULL;
     if (!p)
+        goto done;
+
+    type_policy_t *type = find_type(c, p, s);
+    if (!type)
         goto done;
 
     long existing = find_entry(p, key);
@@ -411,11 +470,11 @@ cache_put_result_t cache_put(zc_cache_t *c, const cache_scope_t *s, const char *
         remove_entry(d, p, (size_t)existing);
 
     if (size > s->partition_max || size > s->domain_max) {
-        apply_scope(d, p, s, 0);
+        apply_scope(d, p, type, s, 0);
         result = CACHE_TOO_LARGE;
         goto done;
     }
-    apply_scope(d, p, s, size);
+    apply_scope(d, p, type, s, size);
     if (p->used + size > p->max || d->used + size > d->max) {
         result = CACHE_TOO_LARGE;
         goto done;
@@ -436,7 +495,7 @@ cache_put_result_t cache_put(zc_cache_t *c, const cache_scope_t *s, const char *
     }
     snprintf(file, file_len, "%s/%016" PRIx64 "-%" PRIu64 ".obj", p->dir, h, ++c->next_id);
     if (write_object(file, header, header_len, obj) != 0 ||
-        policy_on_insert(p->policy, key) != 0) {
+        policy_on_insert(type->policy, key) != 0) {
         unlink(file);
         free(file);
         free(key_copy);
@@ -448,6 +507,8 @@ cache_put_result_t cache_put(zc_cache_t *c, const cache_scope_t *s, const char *
     e->file = file;
     e->size = size;
     e->expires_at = obj->expires_at;
+    e->type = type;
+    type->used += size;
     p->used += size;
     d->used += size;
     result = CACHE_STORED;
@@ -462,7 +523,7 @@ int cache_remove(zc_cache_t *c, const cache_scope_t *s, const char *key)
     int removed = 0;
     pthread_mutex_lock(&c->lock);
     domain_t *d = find_domain(c, s->domain, 0);
-    partition_t *p = d ? find_partition(c, d, s->partition, s->policy, 0) : NULL;
+    partition_t *p = d ? find_partition(d, s->partition, 0) : NULL;
     long idx = p ? find_entry(p, key) : -1;
     if (idx >= 0) {
         remove_entry(d, p, (size_t)idx);
@@ -485,7 +546,7 @@ size_t cache_partition_usage(zc_cache_t *c, const char *domain, const char *part
 {
     pthread_mutex_lock(&c->lock);
     domain_t *d = find_domain(c, domain, 0);
-    partition_t *p = d ? find_partition(c, d, partition, POLICY_LRU, 0) : NULL;
+    partition_t *p = d ? find_partition(d, partition, 0) : NULL;
     size_t used = p ? p->used : 0;
     pthread_mutex_unlock(&c->lock);
     return used;
@@ -495,7 +556,7 @@ size_t cache_partition_count(zc_cache_t *c, const char *domain, const char *part
 {
     pthread_mutex_lock(&c->lock);
     domain_t *d = find_domain(c, domain, 0);
-    partition_t *p = d ? find_partition(c, d, partition, POLICY_LRU, 0) : NULL;
+    partition_t *p = d ? find_partition(d, partition, 0) : NULL;
     size_t n = p ? p->count : 0;
     pthread_mutex_unlock(&c->lock);
     return n;
@@ -505,7 +566,7 @@ int cache_contains(zc_cache_t *c, const char *domain, const char *partition, con
 {
     pthread_mutex_lock(&c->lock);
     domain_t *d = find_domain(c, domain, 0);
-    partition_t *p = d ? find_partition(c, d, partition, POLICY_LRU, 0) : NULL;
+    partition_t *p = d ? find_partition(d, partition, 0) : NULL;
     int found = p && find_entry(p, key) >= 0;
     pthread_mutex_unlock(&c->lock);
     return found;

@@ -114,21 +114,11 @@ void site_config_free(site_config_t *cfg)
     free(cfg);
 }
 
-/*
- * Política de reemplazo de la regla: el campo "policy" (alias "replacementPolicy")
- * o, si no existe, la "replacementPolicy" del primer tipo de archivo (formato
- * actual de la UI). Por defecto LRU. La caché aplica una sola política por regla,
- * porque el límite cacheSize es de la regla completa.
- */
+/* Política por defecto para los tipos que no declaran una propia. */
 static int parse_policy(const cJSON *json, policy_type_t *out)
 {
     *out = POLICY_LRU;
     const cJSON *policy = field(json, "policy", "replacementPolicy");
-    if (!policy) {
-        const cJSON *types = field(json, "fileTypes", NULL);
-        const cJSON *first = cJSON_IsArray(types) ? cJSON_GetArrayItem(types, 0) : NULL;
-        policy = first ? field(first, "replacementPolicy", NULL) : NULL;
-    }
     if (!policy)
         return 0;
     if (!cJSON_IsString(policy))
@@ -157,6 +147,11 @@ static int parse_file_types(const cJSON *json, url_rule_t *r)
         zc_strlcpy(ft->extension, e, sizeof(ft->extension));
         zc_str_tolower(ft->extension);
         ft->ttl = (long)ttl;
+        ft->policy = r->policy;
+        const cJSON *policy = field(t, "replacementPolicy", "policy");
+        if (policy && (!cJSON_IsString(policy) ||
+                       policy_from_string(policy->valuestring, &ft->policy) != 0))
+            return -1;
     }
     return 0;
 }
@@ -340,20 +335,26 @@ const url_rule_t *domain_find_rule(const domain_rule_t *domain, const char *path
     return best;
 }
 
-long url_rule_ttl_for_path(const url_rule_t *rule, const char *path)
+const file_type_rule_t *url_rule_file_type_for_path(const url_rule_t *rule, const char *path)
 {
     char ext[16];
     zc_path_extension(path, ext, sizeof(ext));
     if (!ext[0])
         zc_strlcpy(ext, "html", sizeof(ext));
 
-    long wildcard_ttl = -1;
+    const file_type_rule_t *wildcard = NULL;
     for (size_t i = 0; i < rule->file_type_count; i++) {
         const file_type_rule_t *ft = &rule->file_types[i];
         if (strcmp(ft->extension, ext) == 0)
-            return ft->ttl > 0 ? ft->ttl : -1;
+            return ft;
         if (strcmp(ft->extension, "*") == 0)
-            wildcard_ttl = ft->ttl > 0 ? ft->ttl : -1;
+            wildcard = ft;
     }
-    return wildcard_ttl;
+    return wildcard;
+}
+
+long url_rule_ttl_for_path(const url_rule_t *rule, const char *path)
+{
+    const file_type_rule_t *type = url_rule_file_type_for_path(rule, path);
+    return type && type->ttl > 0 ? type->ttl : -1;
 }

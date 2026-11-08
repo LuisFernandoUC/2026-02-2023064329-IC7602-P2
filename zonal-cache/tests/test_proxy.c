@@ -169,6 +169,34 @@ TEST(miss_then_hit)
     env_free(&e);
 }
 
+TEST(proxy_applies_different_policies_in_the_same_url_rule)
+{
+    env_t e;
+    env_init(&e);
+    url_rule_t *rule = &e.cfg->domains[0].rules[0];
+    rule->file_types[1].policy = POLICY_FIFO;
+    snprintf(rule->file_types[1].extension, sizeof(rule->file_types[1].extension), "css");
+    const char *paths[] = {"/a.html", "/b.html", "/a.css", "/b.css",
+                           "/a.html", "/a.css", "/c.html", "/c.css"};
+    for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
+        char raw[128];
+        snprintf(raw, sizeof(raw), "GET %s HTTP/1.1\r\nHost: sitio.local\r\n\r\n", paths[i]);
+        http_response_t r;
+        request(&e, raw, 0, &r);
+        CHECK_EQ_INT(r.status, 200);
+        CHECK_EQ_STR(http_response_header(&r, "X-Cache"), i == 4 || i == 5 ? "HIT" : "MISS");
+        http_response_free(&r);
+        if (i == 0)
+            rule->cache_size = cache_partition_usage(e.cache, "sitio.local", "/*") * 4;
+    }
+    CHECK(cache_contains(e.cache, "sitio.local", "/*", "sitio.local/a.html"));
+    CHECK(!cache_contains(e.cache, "sitio.local", "/*", "sitio.local/b.html"));
+    CHECK(!cache_contains(e.cache, "sitio.local", "/*", "sitio.local/a.css"));
+    CHECK(cache_contains(e.cache, "sitio.local", "/*", "sitio.local/b.css"));
+    CHECK(cache_partition_usage(e.cache, "sitio.local", "/*") <= rule->cache_size);
+    env_free(&e);
+}
+
 TEST(query_string_is_part_of_key)
 {
     env_t e;
@@ -523,6 +551,7 @@ void suite_proxy(void)
     RUN(health_endpoint);
     RUN(missing_host_and_unknown_domain);
     RUN(miss_then_hit);
+    RUN(proxy_applies_different_policies_in_the_same_url_rule);
     RUN(query_string_is_part_of_key);
     RUN(non_get_and_unconfigured_types_bypass_cache);
     RUN(error_responses_are_not_cached);
