@@ -2,6 +2,8 @@
 
 Panel con React, Vite y Tailwind CSS. El registro, inicio y cierre de sesión usan Firebase Authentication. Los dominios, las reglas de URL, las API keys y los usuarios de recursos están conectados a la API y Firestore.
 
+Publicado en [zonal-cache-ui.vercel.app](https://zonal-cache-ui.vercel.app), con `VITE_API_URL=https://zonal-cache-api.vercel.app`. El proyecto de Vercel usa la raíz `ui` del mismo repositorio que la API.
+
 ## Ejecutar
 
 Se necesita Node.js 24 y npm. Desde la raíz del repositorio:
@@ -59,9 +61,9 @@ npm run build
 
 Para probar el flujo completo, crear una cuenta desde la UI, recargar la página, cerrar sesión e ingresar de nuevo. Sin sesión, abrir `#/dominios` debe volver a **Iniciar sesión**. Contraseñas distintas en el registro deben mostrar un mensaje.
 
-Para probar dominios, agregar `apache.local` con origen `http://apache-apache` y un límite de 1 MB. Abrirlo y recargar: debe conservar el origen y seguir pendiente. Intentar agregarlo otra vez debe mostrar un error. Si ya existe, no se debe volver a crear. Este nombre se usa para las pruebas locales del grupo; no confirma propiedad mediante DNS público.
+Para probar las operaciones del panel, agregar un dominio temporal como `pruebas-panel.local`, con origen `http://apache-apache` y un límite de 1 MB. Abrirlo y recargar: debe conservar el origen y seguir pendiente. Intentar agregarlo otra vez debe mostrar un error. Este nombre no confirma propiedad mediante DNS público y queda fuera de la configuración de las cachés.
 
-Para probar reglas en ese dominio, agregar `/prueba/*` con 0.5 MB, tipo `html`, TTL de 60 segundos, política `LRU` y acceso por API key. Guardar, recargar y abrir **Editar**: los datos deben conservarse. Cambiar el TTL y guardar debe actualizar la misma regla. Si se elimina una regla de prueba desde su confirmación, debe desaparecer de la lista también al recargar.
+Para probar reglas en ese dominio, agregar `/prueba-panel/*` con 0.25 MB, tipo `html`, TTL de 60 segundos, política `LRU` y acceso por API key. Guardar, recargar y abrir **Editar**: los datos deben conservarse. Cambiar a 0.5 MB, TTL de 90 segundos y política `FIFO`; guardar debe actualizar la misma regla. Si se elimina desde su confirmación, debe desaparecer de la lista también al recargar.
 
 Para probar las claves, abrir **Editar regla → Crear clave**, copiar el valor y ocultarlo. Al recargar debe quedar solo su identificador. Eliminar esa clave de prueba desde la confirmación y recargar: ya no debe aparecer.
 
@@ -72,6 +74,10 @@ Para probar el TXT, usar un dominio cuyo DNS se pueda modificar. Publicar el nom
 Para probar el login completo, configurar la caché con la API, la URL de esta UI y el mismo secreto de sesión. Abrir un recurso de una regla con contraseña en un dominio verificado: debe redirigir al formulario, aceptar su usuario y regresar al archivo. Una contraseña incorrecta debe mostrar un error. Abrir el enlace de cierre de sesión y volver a pedir el archivo debe solicitar el login otra vez.
 
 Para probar la eliminación, usar un dominio de prueba que ya no se necesite, confirmar **Eliminar** y recargar. No debe aparecer en la lista ni conservar sus subcolecciones en Firestore.
+
+El 08/11/2026 se probaron en Vercel la creación, edición y eliminación de reglas y usuarios, la creación y eliminación de claves y la eliminación del dominio temporal. Los datos guardados se conservaron al recargar; los eliminados no reaparecieron. El formulario confirmó el cambio de contraseña, pero no se probó el login con esa contraseña. Los datos temporales se borraron al terminar.
+
+También se verificó `proxycache.duckdns.org` mediante un TXT de DuckDNS. El dominio, su regla `/*` y el usuario `prueba3` se conservaron para la prueba de integración. Falta probar el login válido, Apache con MISS/HIT y el cierre de sesión con la caché desplegada. Ver [resultados y pasos](../README.md#92-pruebas-de-api-y-ui-en-vercel).
 
 ## Referencias
 

@@ -12,6 +12,8 @@ También indica qué cambios ya se hicieron en la caché y qué falta en cada co
 
 Detalle de la caché: [zonal-cache/README.md](../zonal-cache/README.md). Contrato del API: [Contratos/API-Node.md](Contratos/API-Node.md).
 
+La API está publicada en [zonal-cache-api.vercel.app](https://zonal-cache-api.vercel.app) y la UI en [zonal-cache-ui.vercel.app](https://zonal-cache-ui.vercel.app). `proxycache.duckdns.org` ya está verificado por TXT. Las pruebas del panel y los pendientes del flujo completo están en [el README principal](../README.md#92-pruebas-de-api-y-ui-en-vercel).
+
 ## 1. Estructura
 
 ```text
@@ -95,14 +97,14 @@ flowchart LR
 | Puerto que ve el cliente | Service 80 (HTTP) y 443 (HTTPS) | DNS responde solo con la IP (registro A) | Coincide |
 | Dominios atendidos | `domains[].name` de la configuración | DNS: lista fija `apache.p2.local`, `*.cdn.p2.local` | Hay que mantenerlas iguales (sección 7) |
 | Servidor de origen | `domains[].origin` o `originUrl` | El formulario pide `originUrl` y la API lo valida y guarda al agregar el dominio | Implementado en API y UI; los dominios anteriores pueden no tenerlo |
-| Configuración | `GET ZC_CONFIG_URL` con todos los dominios | API: `GET /api/cache/config` entrega los dominios verificados y sus reglas | Implementado en API; falta conectar el despliegue |
-| Autenticar la caché ante el API | `Authorization: Bearer <ZC_CONFIG_TOKEN>` | API: compara el token con `CACHE_API_TOKEN` | Implementado; falta configurar el mismo valor en ambos |
+| Configuración | `GET ZC_CONFIG_URL` con todos los dominios | API: `GET /api/cache/config` entrega los dominios verificados y sus reglas | Probado desde la caché local contra Vercel; falta comprobar el despliegue en el clúster |
+| Autenticar la caché ante el API | `Authorization: Bearer <ZC_CONFIG_TOKEN>` | API: compara el token con `CACHE_API_TOKEN` | Probado contra la API publicada; falta confirmar la configuración del clúster |
 | API keys | SHA-256 en `apiKeys[]` (valida localmente) | API: entrega solo `keyHash` a la caché autenticada | Creación, listado de IDs y eliminación conectados a la UI |
 | Formato de reglas | `pattern`, `cacheSize`, `auth`, `fileTypes[].ttl` | API: `pathPattern`, `maxCacheBytes`, `authMode`, `ttlSeconds` | La caché acepta ambos nombres |
 | Política de reemplazo | Una por tipo de archivo | UI y API: `fileTypes[].replacementPolicy` | Coincide; los tipos comparten el límite de tamaño de la regla |
-| Reglas públicas | `auth: none` | API: `authMode` solo acepta `api-key` o `password` | Falta en API y UI; sin esto no se puede cachear contenido público configurado desde la UI |
-| Cualquier tipo de archivo | `fileTypes[].extension: "*"` | API: la validación de extensiones rechaza `*` | Hay que listar cada extensión; las rutas sin extensión cuentan como `html` |
-| Dominios verificados | `/api/cache/config` solo entrega `verified: true` | API: `POST /api/domains/:domainId/verify` consulta el TXT | Implementado; falta probar un dominio real con DNS configurable |
+| Reglas públicas | `auth: none` | API: `authMode` solo acepta `api-key` o `password` | Opción de la caché que no se expone en la UI; el enunciado pide API key o usuario y contraseña |
+| Cualquier tipo de archivo | `fileTypes[].extension: "*"` | API: la validación de extensiones rechaza `*` | Se configura cada extensión; las rutas sin extensión cuentan como `html`. Aceptar `*` sería una mejora opcional |
+| Dominios verificados | `/api/cache/config` solo entrega `verified: true` | API: `POST /api/domains/:domainId/verify` consulta el TXT | Probado con `proxycache.duckdns.org`; el estado persiste y el dominio aparece en la configuración |
 | Login de recursos | `ZC_LOGIN_URL?domain&path&callback` → JWT HS256 | UI: `#/acceso-recurso` conectado a `POST /api/cache/sessions` | Implementado; falta probar con la caché desplegada y el secreto compartido |
 | Sesión por recurso | Claim `rule` = `id` de la regla | API: firma el dominio, usuario, regla y vencimiento | Implementado en API y caché |
 | Cierre de sesión | `/__zc/logout` borra la cookie | UI: enlace al cierre en el dominio del recurso | No requiere otro endpoint en el API; el JWT vence solo |
@@ -235,9 +237,9 @@ El DNS Interceptor se instala **después** de la caché, porque busca la IP de l
 | [docker-compose.yml](../zonal-cache/docker-compose.yml) | El comando del contenedor `certs` se partía en varias líneas (bloque `>` de YAML con sangría desigual) y `openssl` no recibía `-subj` ni `-keyout`. |
 | [deploy/test-k8s.sh](../deploy/test-k8s.sh) | Script nuevo con las pruebas de integración de la sección 8. |
 
-## 6. Cambios necesarios en el API Node.js y la UI
+## 6. Estado del API Node.js y la UI
 
-El endpoint `GET /api/cache/config`, el campo `originUrl`, las operaciones de reglas de URL, las API keys y los usuarios de recursos ya están implementados. El login de recursos, la verificación TXT y la eliminación de dominios también están implementados. Falta probar el flujo con un dominio real y la caché desplegada.
+El endpoint `GET /api/cache/config`, el campo `originUrl`, las operaciones de reglas de URL, las API keys y los usuarios de recursos ya están implementados. El login de recursos, la verificación TXT y la eliminación de dominios también están implementados. La API y la UI están publicadas en Vercel. Se probaron las operaciones del panel con Firestore real y la verificación TXT con DuckDNS. Falta probar el login válido, Apache con MISS/HIT y el cierre de sesión con la caché desplegada.
 
 ### 6.1 Variables de entorno nuevas del API
 
@@ -297,12 +299,12 @@ Las rutas para crear y administrar usuarios y claves están en [API-Node.md](Con
 
 ## 7. DNS Interceptor
 
-No necesita cambios de código. Ya usa los mismos nombres de zona y de Service.
+Los nombres de zona y de Service coinciden. Esta rama todavía usa la lista fija de dominios; los cambios para leerlos del API están en `feat/dns-interceptor` y faltan por integrar y probar aquí.
 
 - **Dominios:**
   - `values.yaml` intercepta `apache.p2.local` y `*.cdn.p2.local`, y [values-local.yaml](../deploy/helm/zonal-cache/values-local.yaml) usa los mismos dominios: `apache.p2.local` y `api.cdn.p2.local`.
   - Al registrar dominios reales en la UI, hay que agregarlos con `--set "domains={a.com,b.com}"`.
-  - Pendiente de Nicole y Luis Fernando: que el interceptor lea la lista de dominios verificados del API.
+  - Pendiente de Luis Fernando y Nicole: integrar y probar la lectura de dominios verificados del API que está en `feat/dns-interceptor`.
 - **IP del Service:**
   - El interceptor responde con la IP `ClusterIP` de la caché. Esa IP solo es alcanzable dentro del cluster.
   - Para probar desde el equipo, se puede usar un pod cliente (sección 8).
@@ -362,20 +364,18 @@ Para usar el API en lugar de `values-local.yaml`:
 
 ```bash
 helm upgrade --install zonal-cache deploy/helm/zonal-cache \
-  --set config.url=https://<api>.vercel.app/api/cache/config \
+  --set config.url=https://zonal-cache-api.vercel.app/api/cache/config \
   --set secrets.configToken=$CACHE_API_TOKEN \
   --set secrets.sessionSecret=$CACHE_SESSION_SECRET \
-  --set loginUrl='https://<ui>.vercel.app/#/acceso-recurso'
+  --set loginUrl='https://zonal-cache-ui.vercel.app/#/acceso-recurso'
 ```
 
 ## 9. Pendientes
 
 | Pendiente | Responsable |
 | --- | --- |
-| Probar la verificación TXT con un dominio cuyo DNS se pueda modificar | Nicole |
-| Aceptar reglas sin autenticación (`none`) y el tipo de archivo `*` en el API y la UI | Nicole |
-| Desplegar el API y la UI en Vercel y conectar la caché con `config.url` | Nicole y Fabricio |
-| Probar el login y cierre de sesión con la caché desplegada y el secreto compartido | Nicole y Fabricio |
-| Configurar `CACHE_API_TOKEN` y `CACHE_SESSION_SECRET` en Vercel y en el chart; ya están generados localmente | Fabricio y Nicole |
-| Sincronizar `DI_DOMAINS` con los dominios verificados | Luis Fernando y Nicole |
+| Confirmar que la caché desplegada usa la API de Vercel y los mismos secretos de configuración y sesión; la API publicada ya está configurada | Fabricio y Nicole |
+| Probar login válido, Apache con MISS/HIT y cierre de sesión con la caché desplegada | Nicole y Fabricio, con acceso al entorno de Luis Fernando |
+| Reconstruir y desplegar la imagen con las políticas por tipo de archivo; el código ya pasó las 102 pruebas de caché | Fabricio |
+| Integrar y probar los cambios de `feat/dns-interceptor` para leer dominios verificados del API | Luis Fernando y Nicole |
 | Las respuestas de la Rest API Java guardadas en caché pueden quedar viejas hasta su TTL después de un POST, PUT o DELETE | Documentado; usar TTL bajos en `/api/*` |

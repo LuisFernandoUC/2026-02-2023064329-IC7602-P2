@@ -59,7 +59,7 @@ El sistema intercepta peticiones DNS de dominios específicos, las redirige a un
 | ---------- | ---------------------------- | ---------------------------------------------------------------------------------------------- |
 | 2023064329 | Luis Fernando Ureña Corrales | DNS Interceptor, Apache, Rest API Java, deploy k8s + Helm, librería de algoritmos de reemplazo |
 | 2023       | Fabricio Herrera Rodriguez   | Zonal Cache                                                                                    |
-| 2023       | Nicole Parra Valverde        | REST API Node.js, UI y su deploy en Vercel                                                     |
+| 2023223291 | Nicole Parra Valverde        | REST API Node.js, UI y su deploy en Vercel                                                     |
 
 ## 3. Arquitectura
 
@@ -72,7 +72,9 @@ Cliente ──DNS (UDP)──▶ DNS Interceptor ──(IP to Country)──▶ 
             ▼                 ▼                  ▼
      Rest API (Java)    Apache Server     Sitios externos (HTTP / HTTPS)
 
-Zonal Cache ──GET /api/cache/config (cada 30 s)──▶ REST API Node.js ──▶ Firebase/Firestore ◀── UI (React)
+UI (React) ──▶ REST API Node.js ──▶ Firestore
+Zonal Cache ──GET /api/cache/config (cada 30 s)──▶ REST API Node.js
+UI (React) ──registro y sesión──▶ Firebase Authentication
 ```
 
 **Flujo de una petición:**
@@ -175,18 +177,20 @@ kubectl get pods,svc
 
   ```bash
   helm upgrade --install zonal-cache deploy/helm/zonal-cache \
-    --set config.url=https://<api>.vercel.app/api/cache/config \
+    --set config.url=https://zonal-cache-api.vercel.app/api/cache/config \
     --set secrets.configToken=$CACHE_API_TOKEN \
     --set secrets.sessionSecret=$CACHE_SESSION_SECRET \
-    --set loginUrl='https://<ui>.vercel.app/#/acceso-recurso'
+    --set loginUrl='https://zonal-cache-ui.vercel.app/#/acceso-recurso'
   ```
 
 - Si un pod queda en `ErrImagePull`, agregar `--set image.pullPolicy=Never` al `helm install` de ese chart.
 
 ### 6.5 Desplegar el API Node.js y la UI (Vercel)
 
+La API está publicada en [zonal-cache-api.vercel.app](https://zonal-cache-api.vercel.app) y la UI en [zonal-cache-ui.vercel.app](https://zonal-cache-ui.vercel.app). Son dos proyectos de Vercel conectados al mismo repositorio.
+
 1. En Vercel, importar el repositorio de GitHub dos veces: un proyecto con **Root Directory** `api-node` y otro con `ui`. Cada push a la rama configurada despliega automáticamente.
-2. Configurar las variables de entorno de cada proyecto ([sección 7](#7-configuración-variables-de-entorno)).
+2. Configurar las variables de entorno de cada proyecto ([sección 7](#7-configuración-variables-de-entorno)). En la API, `UI_ORIGIN=https://zonal-cache-ui.vercel.app`; en la UI, `VITE_API_URL=https://zonal-cache-api.vercel.app`. Las claves privadas y los secretos van solo en la API y en la caché, según corresponda.
 3. Ejecución local, como alternativa (requiere Node.js 24):
 
    ```bash
@@ -226,7 +230,7 @@ Termina con código `0` si todas las pruebas pasan. Salida resumida:
 Para comprobar la API y la UI publicadas, ejecutar desde `api-node`:
 
 ```bash
-API_URL=https://<api>.vercel.app UI_URL=https://<ui>.vercel.app npm run check:deployment
+API_URL=https://zonal-cache-api.vercel.app UI_URL=https://zonal-cache-ui.vercel.app npm run check:deployment
 ```
 
 Comprueba disponibilidad, CORS, acceso a Firestore y rechazo de solicitudes sin autorización. Las pruebas con DNS y caché se hacen con el clúster desplegado.
@@ -286,6 +290,8 @@ Toda configuración se inyecta por variables de entorno. En Kubernetes las defin
 | API Node.js     | `FIREBASE_CLIENT_EMAIL`                   | Correo de la cuenta de servicio                                | `client_email`                           |
 | API Node.js     | `FIREBASE_PRIVATE_KEY`                    | Clave privada de la cuenta de servicio                         | `private_key`, entre comillas dobles     |
 | API Node.js     | `CACHE_API_TOKEN`                         | Token con el que se autentican las cachés; igual a `ZC_CONFIG_TOKEN` | `openssl rand -hex 32`             |
+| API Node.js     | `CACHE_SESSION_SECRET`                    | Secreto de al menos 32 bytes para firmar sesiones; igual a `ZC_SESSION_SECRET` | `openssl rand -hex 32`        |
+| API Node.js     | `CACHE_SESSION_SECONDS`                   | Duración de la sesión del recurso, en segundos                  | `3600`                                  |
 | UI              | `VITE_API_URL`                            | URL del API Node.js                                            | `http://127.0.0.1:3000`                  |
 | UI              | `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID` | Configuración web de Firebase Authentication | Consola de Firebase |
 
@@ -332,7 +338,7 @@ La API incluye `GET /api/health` y estos grupos de rutas:
 
 La conexión a Firestore se configura con variables de entorno. El comando `npm run check:firestore`, desde `api-node/`, permite comprobar el acceso.
 
-Faltan el despliegue en Vercel y las pruebas del flujo completo con un dominio real y la caché configurada con la API. Ver [api-node/README.md](api-node/README.md) y [Docs/Contratos/API-Node.md](Docs/Contratos/API-Node.md).
+La API está publicada en Vercel y se comprobó la lectura de Firestore. `proxycache.duckdns.org` ya está verificado por TXT y aparece en `/api/cache/config`. Falta probar el login completo y el acceso a Apache desde la caché desplegada. Ver [api-node/README.md](api-node/README.md) y [Docs/Contratos/API-Node.md](Docs/Contratos/API-Node.md).
 
 ### 8.6 UI
 
@@ -352,7 +358,9 @@ No se usó Terraform porque todo se ejecuta en Kubernetes local.
 
 ## 9. Pruebas realizadas
 
-Resultados obtenidos el 03/11/2026 con Kubernetes de Docker Desktop y los cuatro charts instalados como en la [sección 6.4](#64-desplegar-con-helm).
+### 9.1 Pruebas del clúster y Docker Compose
+
+Resultados registrados el 03/11/2026 con Kubernetes de Docker Desktop y Docker Compose. El clúster usa los cuatro charts de la [sección 6.4](#64-desplegar-con-helm) y la configuración de prueba `values-local.yaml`. Estos resultados no prueban el flujo completo con la API de Vercel.
 
 | #   | Prueba                                              | Pasos para reproducir | Resultado esperado | Resultado obtenido |
 | --- | --------------------------------------------------- | --------------------- | ------------------ | ------------------ |
@@ -375,13 +383,31 @@ Resultados obtenidos el 03/11/2026 con Kubernetes de Docker Desktop y los cuatro
 
 Recomendación del enunciado: usar `nslookup` para el DNS Interceptor y Postman/`curl` para la caché zonal.
 
+### 9.2 Pruebas de API y UI en Vercel
+
+Comprobaciones realizadas el 08/11/2026 con la API y la UI publicadas y Firestore real. Para repetir las operaciones del panel, iniciar sesión y usar un dominio temporal sin verificar, como `pruebas-panel.local`, con origen `http://apache-apache` y límite de 1 MB.
+
+| Prueba | Pasos para reproducir | Resultado obtenido |
+| --- | --- | --- |
+| Disponibilidad y permisos | Desde `api-node/`, ejecutar el comando `check:deployment` de la sección 6.6 con las URLs publicadas y el token local | API y UI responden `200`; CORS permite la UI; dominios y configuración sin autorización responden `401`; la consulta autenticada lee Firestore con `Cache-Control: no-store` |
+| Verificación TXT | En un dominio con DNS editable, publicar el TXT que muestra **Verificar dominio**, verificar y recargar | `proxycache.duckdns.org` sigue verificado y aparece con su regla en `/api/cache/config` |
+| Reglas de URL | Crear `/prueba-panel/*` con 0.25 MB, `html`, TTL 60, LRU y acceso por API key. Editar a 0.5 MB, TTL 90 y FIFO; recargar | La creación y la edición conservan los datos. La edición mantiene el ID de la regla |
+| API keys | Crear una clave, ocultarla y recargar. Abrir su eliminación y cancelar; luego confirmar la eliminación y recargar | El valor se muestra solo al crearla. Cancelar conserva la clave; al eliminarla desaparece también después de recargar |
+| Usuarios de recursos | Cambiar y guardar el acceso de la regla a **Usuario y contraseña**. Crear un usuario temporal, editar su nombre con contraseña vacía y después guardar una nueva contraseña desde el formulario. Eliminarlo y recargar | El nombre se guarda y se puede editar. El formulario confirma el guardado de la nueva contraseña. El usuario eliminado no reaparece. El login con esa contraseña no se comprobó en esta prueba |
+| Eliminación y limpieza | Eliminar la regla temporal y después el dominio; recargar ambas listas | La regla y el dominio desaparecen. Se conservaron el dominio verificado, su regla `/*` y el usuario `prueba3` |
+| Dominios pendientes | Consultar `/api/cache/config` con el token de la caché mientras existe el dominio temporal sin verificar | El dominio temporal queda fuera de la configuración |
+
+También se ejecutó la caché local con la API real de Vercel: cargó la configuración, respondió a su comprobación de salud y redirigió al login público. Un token inválido en el callback respondió `401` y `/__zc/logout` respondió `200` borrando la cookie. No se sirvieron archivos de Apache en esa ejecución.
+
+Las pruebas actuales de la caché dieron **102 correctas y 0 fallidas**, incluidas las políticas distintas por tipo de archivo y los límites compartidos. Falta reconstruir y desplegar ese cambio en el clúster y probar el login válido, Apache con MISS/HIT y el acceso después de cerrar sesión usando la API real y el secreto compartido.
+
 ## 10. Estado de la implementación
 
 | Aspecto                  | Funciona | No funciona / limitaciones | Notas |
 | ------------------------ | -------- | -------------------------- | ----- |
 | DNS Interceptor          | Respuestas A según el país (IP to Country y EDNS Client Subnet), comodines, zona por defecto, reenvío al DNS externo, despliegue con Helm que obtiene solo las IPs de las cachés, pruebas unitarias | Solo IPv4 y UDP. La lista de dominios es fija en `values.yaml` y no se sincroniza con los dominios verificados en la UI. Con `NodePort` se pierde la IP real del cliente | Ver [dns-interceptor/README.md](dns-interceptor/README.md#qué-funciona-y-qué-no) |
-| Zonal Cache              | Servidor TCP con SSL termination, caché en disco con límites por dominio y por URL, LRU/LFU/FIFO/MRU/Random, TTL por tipo de archivo, `x-api-key`, verificación de sesiones JWT, redirección al login, orígenes HTTP y HTTPS, recarga de configuración, un despliegue por zona | La demostración usa `values-local.yaml`; falta conectar la configuración real de Firebase con un dominio verificado por DNS. Sin keep-alive; no respeta `Vary` | Ver [zonal-cache/README.md](zonal-cache/README.md#9-estado) |
-| RestAPI Node.js / UI     | Cuentas del panel con Firebase Authentication; registro, listado, verificación TXT y eliminación de dominios; administración de reglas, API keys y usuarios de recursos; `GET /api/cache/config`; login de recursos con JWT | Falta publicar en Vercel y probar el flujo completo con DNS y caché desplegada. Los ajustes propuestos de reglas sin autenticación y tipo de archivo `*` siguen pendientes | Las pruebas de API usan Firestore y DNS simulados. Ver [Docs/Integracion.md](Docs/Integracion.md#9-pendientes) |
+| Zonal Cache              | Servidor TCP con SSL termination, caché en disco con límites por dominio y por URL, LRU/LFU/FIFO/MRU/Random, TTL y política por tipo de archivo, `x-api-key`, verificación de sesiones JWT, redirección al login, orígenes HTTP y HTTPS, recarga de configuración, un despliegue por zona | La prueba local ya leyó la API real; falta completar el flujo en el clúster y desplegar el cambio de políticas por tipo. Sin keep-alive; no respeta `Vary` | Las pruebas del 03/11 usan `values-local.yaml`. Ver [zonal-cache/README.md](zonal-cache/README.md#9-estado) |
+| RestAPI Node.js / UI     | API y UI publicadas en Vercel; cuentas con Firebase Authentication; administración de dominios, reglas, API keys y usuarios; TXT real verificado; configuración de cachés con Firestore; endpoint de login con JWT | Falta comprobar el login válido, MISS/HIT de Apache y cierre de sesión con la caché desplegada y el secreto compartido | Las pruebas unitarias simulan Firebase y DNS; las del panel usan Vercel y Firestore reales. Ver sección 9.2 y [Docs/Integracion.md](Docs/Integracion.md#9-pendientes) |
 | Rest API / Apache Server | GET, POST, PUT y DELETE en Java; HTML en Apache; ambos con Dockerfile, Helm y Docker Compose, probados a través de la caché | Los datos de la Rest API Java viven en memoria y se pierden al reiniciar el pod | — |
 
 ## 11. Conclusiones
@@ -400,8 +426,8 @@ Recomendación del enunciado: usar `nslookup` para el DNS Interceptor y Postman/
 
 ## 12. Recomendaciones
 
-1. Probar la verificación TXT con un dominio real y conectar las cachés al API para dejar `values-local.yaml` solo para desarrollo.
-2. Permitir reglas sin autenticación y el tipo de archivo `*` en el API y la UI: la caché ya los soporta y son necesarios para cachear contenido público.
+1. Completar las pruebas de la caché desplegada con el dominio ya verificado y la API de Vercel; dejar `values-local.yaml` para desarrollo.
+2. Al probar la administración de dominios, reglas, claves y usuarios, comprobar con dos cuentas que cada una solo pueda acceder a sus propios datos.
 3. Sincronizar la lista de dominios del DNS Interceptor con los dominios verificados del API, en lugar de mantenerla fija en `values.yaml`.
 4. Agregar keep-alive y un pool de hilos con `epoll` a la caché si se espera mucha concurrencia, para no crear un hilo y un handshake TLS por petición.
 5. Invalidar en la caché las entradas de una ruta cuando pasa por ella un POST, PUT o DELETE, para no servir datos viejos hasta que venza el TTL.
@@ -410,7 +436,7 @@ Recomendación del enunciado: usar `nslookup` para el DNS Interceptor y Postman/
 8. Usar certificados de una autoridad reconocida (por ejemplo, cert-manager con Let's Encrypt) en lugar del certificado autofirmado del chart.
 9. Agregar a GitHub Actions el DNS Interceptor, el API Node.js y el script de integración sobre un cluster efímero (kind), no solo la caché.
 10. Respetar el encabezado `Vary` del origen, o incluirlo en la clave de caché, antes de cachear respuestas que cambian por idioma o por usuario.
-11. Integrar los componentes cada semana en lugar de al final: varios huecos (origen del dominio, formato de reglas, modo sin autenticación) solo aparecieron al conectar el API con la caché.
+11. Integrar los componentes cada semana: los ajustes del origen, el formato de reglas y las políticas por tipo de archivo se detectaron al conectar el API con la caché.
 
 ## 13. Reportes de avance
 

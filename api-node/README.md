@@ -2,6 +2,8 @@
 
 API con Express, registro y listado de dominios en Firestore, autenticación con Firebase Authentication y consulta de configuración para las cachés.
 
+Publicada en [zonal-cache-api.vercel.app](https://zonal-cache-api.vercel.app). La comprobación de salud está en [`/api/health`](https://zonal-cache-api.vercel.app/api/health).
+
 ## Ejecutar
 
 Se necesita Node.js 24 y npm. Desde la raíz del repositorio:
@@ -26,10 +28,12 @@ npm run dev
 | `FIREBASE_CLIENT_EMAIL` | Correo de la cuenta de servicio. | Valor `client_email`. |
 | `FIREBASE_PRIVATE_KEY` | Clave privada de la cuenta de servicio. | Valor `private_key`, entre comillas dobles. |
 | `CACHE_API_TOKEN` | Token para consultar `/api/cache/config`. | Mismo valor que `ZC_CONFIG_TOKEN` en la caché. |
+| `CACHE_SESSION_SECRET` | Secreto de al menos 32 bytes para firmar las sesiones de recursos. | Mismo valor que `ZC_SESSION_SECRET` en la caché. |
+| `CACHE_SESSION_SECONDS` | Duración de la sesión del recurso en segundos; entero positivo. | `3600` |
 
 `HOST` y `PORT` son obligatorias para el servidor local. Las variables de Firebase se usan para Firestore y para validar sesiones. `/api/health` puede funcionar sin ellas. `UI_ORIGIN` debe coincidir con la dirección de la UI, incluido el puerto.
 
-Las variables se leen desde `.env`, que no se sube al repositorio. En Vercel se configurarán en el proyecto y se usará la aplicación exportada en `app.js`.
+Las variables se leen desde `.env`, que no se sube al repositorio. En Vercel están configuradas en el proyecto con raíz `api-node` y se usa la aplicación exportada en `app.js`. El origen permitido allí es `UI_ORIGIN=https://zonal-cache-ui.vercel.app`.
 
 ## Configurar Firestore
 
@@ -64,7 +68,7 @@ Se usa Firebase Authentication con correo y contraseña porque el proyecto ya us
 
 La UI registra e inicia sesión con el SDK de Firebase. En sus solicitudes a la API envía el ID token en `Authorization: Bearer <token>`. `requireAuth` lo verifica con Firebase Admin y obtiene el UID de la cuenta. Ese UID identifica al propietario de los dominios.
 
-El listado y el registro de dominios usan `requireAuth`, que responde `401` si falta el token o no es válido, y `503` si falla la validación por un problema del servicio o de configuración. La autenticación de usuarios de recursos se hará por separado.
+El listado y el registro de dominios usan `requireAuth`, que responde `401` si falta el token o no es válido, y `503` si falla la validación por un problema del servicio o de configuración. La autenticación de usuarios de recursos usa el endpoint separado `/api/cache/sessions`.
 
 ## Dominios
 
@@ -163,7 +167,7 @@ La respuesta no incluye propietarios, tokens TXT, usuarios, contraseñas ni hash
 
 Si no hay dominios verificados, devuelve `200` y `{ "domains": [] }`. Un token ausente o incorrecto responde `401`. Si falta `CACHE_API_TOKEN`, responde `503`.
 
-Falta conectar el despliegue de la caché con esta API y probarlo con un dominio verificado por DNS.
+Se comprobó la lectura desde una ejecución local de la caché contra la API de Vercel. `proxycache.duckdns.org` ya está verificado por TXT y aparece con su regla en la configuración. Falta completar la prueba con la caché desplegada y Apache.
 
 Agregar `CACHE_API_TOKEN` a `.env` y usar el mismo valor como `ZC_CONFIG_TOKEN` en la caché. Se puede generar un valor con `openssl rand -hex 32`. No subirlo al repositorio ni ponerlo en variables `VITE_`.
 
@@ -212,14 +216,18 @@ Reemplazar `<CACHE_API_TOKEN>` por el valor local. Debe responder `200` con la l
 Ejecutar desde esta carpeta, con las URLs publicadas:
 
 ```bash
-API_URL=https://<api>.vercel.app UI_URL=https://<ui>.vercel.app npm run check:deployment
+API_URL=https://zonal-cache-api.vercel.app UI_URL=https://zonal-cache-ui.vercel.app npm run check:deployment
 ```
 
 Usa `CACHE_API_TOKEN` del `.env` local. Comprueba disponibilidad, CORS, Firestore y rechazo de accesos inválidos, sin modificar datos. Si se omiten las URLs, usa las direcciones locales.
 
+El 08/11/2026 se comprobaron estas respuestas en Vercel: salud y UI `200`, CORS permitido para la UI, dominios y configuración sin autorización `401`, configuración autenticada `200` con `Cache-Control: no-store`, y login con datos inválidos `401`.
+
+También se probaron las operaciones del panel con Firestore real y la verificación TXT con DuckDNS. Los pasos y resultados están en [las pruebas del README principal](../README.md#92-pruebas-de-api-y-ui-en-vercel). Sigue pendiente el login válido y el recorrido completo por la caché desplegada hasta Apache.
+
 ## Referencias
 
-- [Datos y endpoints propuestos](../Docs/Contratos/API-Node.md).
+- [Datos y endpoints](../Docs/Contratos/API-Node.md).
 - [Ejemplo básico de Express](https://expressjs.com/en/starter/hello-world/), de Express y OpenJS Foundation: referencia para crear la aplicación y sus rutas.
 - [Express en Vercel](https://vercel.com/docs/frameworks/backend/express): referencia para exportar la aplicación.
 - [Variables de entorno en Node.js](https://nodejs.org/docs/latest-v24.x/api/cli.html#--env-filefile): carga de `.env`.

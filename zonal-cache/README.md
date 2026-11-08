@@ -252,7 +252,7 @@ crypto.createHash("sha256").update(apiKey).digest("hex");
 ### 4.2 Sesiones de usuario y contraseña
 
 1. La caché redirige a `ZC_LOGIN_URL?domain=<dominio>&path=<ruta>&callback=<url codificada>`.
-   Con la UI de Vercel: `ZC_LOGIN_URL=https://<ui>.vercel.app/#/acceso-recurso`.
+   Con la UI de Vercel: `ZC_LOGIN_URL=https://zonal-cache-ui.vercel.app/#/acceso-recurso`.
 2. La UI envía `domain`, `path`, usuario y contraseña al API (`POST /api/cache/sessions`), que busca la regla de esa ruta y valida el usuario.
 3. El API emite un **JWT HS256** firmado con `ZC_SESSION_SECRET` con estos claims:
 
@@ -368,10 +368,10 @@ El chart está en [deploy/helm/zonal-cache](../deploy/helm/zonal-cache) y crea u
 minikube image build -t zonal-cache:latest ./zonal-cache
 
 helm upgrade --install zc ./deploy/helm/zonal-cache \
-  --set config.url=https://<api-node>.vercel.app/api/cache/config \
-  --set secrets.configToken=<token> \
-  --set secrets.sessionSecret=<secreto> \
-  --set loginUrl='https://<ui>.vercel.app/#/acceso-recurso'
+  --set config.url=https://zonal-cache-api.vercel.app/api/cache/config \
+  --set secrets.configToken=$CACHE_API_TOKEN \
+  --set secrets.sessionSecret=$CACHE_SESSION_SECRET \
+  --set loginUrl='https://zonal-cache-ui.vercel.app/#/acceso-recurso'
 
 kubectl get svc -l app.kubernetes.io/name=zonal-cache   # IPs para el DNS Interceptor
 ```
@@ -399,15 +399,17 @@ kubectl get svc -l app.kubernetes.io/name=zonal-cache   # IPs para el DNS Interc
 | SSL termination (HTTPS con OpenSSL) | Implementado |
 | Caché en disco con límite por dominio y por URL | Implementado |
 | LRU, LFU, FIFO, MRU, Random | Implementado |
-| TTL por tipo de archivo | Implementado |
+| TTL y política de reemplazo por tipo de archivo | Implementado y probado; los tipos comparten el límite de tamaño de la regla. Falta desplegar este cambio en el clúster |
 | Comodines en dominios y URLs | Implementado |
 | Autenticación `x-api-key` | Implementado |
-| Usuario y contraseña (login en la UI y sesión JWT) | Implementado en la caché (redirección, callback, cookie, Bearer, logout). El login completo depende de `POST /api/cache/sessions`, pendiente en el API |
-| Configuración desde Firebase (vía API Node.js) con recarga periódica | Implementado en la caché, y `GET /api/cache/config` existe en el API. Mientras el API no marque dominios como verificados (TXT), las pruebas usan `config.inline` (`values-local.yaml`) |
+| Usuario y contraseña (login en la UI y sesión JWT) | La caché, `POST /api/cache/sessions` y el formulario están implementados. La redirección a la UI publicada se probó desde la caché local. Falta el login válido y el recorrido completo con la caché desplegada |
+| Configuración desde Firebase (vía API Node.js) con recarga periódica | La caché local leyó la API de Vercel con `proxycache.duckdns.org` verificado por TXT. Falta comprobar la configuración en el clúster; las pruebas anteriores de Kubernetes usan `config.inline` (`values-local.yaml`) |
 | Origen HTTP y HTTPS | Implementado y probado (Apache, Rest API Java, example.com, wikipedia) |
 | Dockerfile, Docker Compose y Helm Chart | Implementado y probado en Kubernetes de Docker Desktop |
 | Pruebas unitarias | 102 pruebas, 0 fallidas |
 | Pruebas de integración en Kubernetes | [deploy/test-k8s.sh](../deploy/test-k8s.sh) |
+
+Las comprobaciones con la API real y las pruebas que faltan para completar el flujo están en [el README principal](../README.md#92-pruebas-de-api-y-ui-en-vercel).
 
 ## 10. Créditos
 

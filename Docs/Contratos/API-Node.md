@@ -121,9 +121,8 @@ La caché guarda el JWT en su cookie. El cierre usa `/__zc/logout`, que borra es
 
 | Acuerdo | Participantes |
 | --- | --- |
-| Definir el formato de configuración, el origen de los archivos y cómo la caché recibe los cambios, incluidas las eliminaciones de claves o usuarios. | Nicole y Fabricio |
-| Configurar el mismo valor de `CACHE_API_TOKEN` y `ZC_CONFIG_TOKEN` al conectar la caché con la API. | Nicole y Fabricio |
-| Probar el login y cierre de sesión con la caché desplegada y el mismo secreto de sesión. | Nicole y Fabricio |
-| Definir qué datos necesita el DNS Interceptor para reconocer los dominios verificados. | Nicole y Luis Fernando |
+| Confirmar en el clúster el mismo token de configuración y secreto de sesión que usa la API publicada. La lectura desde la caché local ya se comprobó. | Nicole y Fabricio |
+| Probar el login válido, Apache con MISS/HIT y el cierre de sesión con la caché desplegada. | Nicole y Fabricio, con acceso al entorno de Luis Fernando |
+| Integrar y probar los cambios de `feat/dns-interceptor` que consultan los dominios verificados en `/api/cache/config`. | Nicole y Luis Fernando |
 
-La configuración de los servicios y sus credenciales se leerá de variables de entorno.
+El formato de configuración, el origen de los archivos y la actualización de cambios ya están implementados como se describe arriba. La configuración de los servicios y sus credenciales se lee de variables de entorno.
