@@ -45,7 +45,7 @@ Las pantallas del panel requieren sesión. Las solicitudes hechas con `apiReques
 
 El detalle del dominio muestra su servidor de origen. Si fue creado antes de agregar este campo, muestra **Sin configurar**; no se cambia su configuración automáticamente.
 
-Desde el detalle se pueden agregar, editar y eliminar reglas de URL. El formulario guarda el patrón, el tamaño de caché, el mecanismo de acceso y los tipos de archivo con su TTL y política. Convierte MB a bytes al guardar. Después vuelve a la lista y consulta las reglas guardadas. Para eliminar una regla se pide confirmación.
+Desde el detalle se pueden agregar, editar y eliminar reglas de URL. El formulario guarda el patrón, el tamaño de caché, el mecanismo de acceso (sin autenticación, API key o usuario y contraseña) y los tipos de archivo con su TTL y política. La extensión `*` cubre los tipos sin fila propia. Convierte MB a bytes al guardar. Después vuelve a la lista y consulta las reglas guardadas. Para eliminar una regla se pide confirmación.
 
 En **Editar regla**, si el acceso guardado es por API key, se pueden crear y eliminar claves. Una clave nueva se muestra una sola vez para copiarla; **Ocultar clave** retira su valor de la pantalla. La lista muestra solo los identificadores. La eliminación pide confirmación y llega a las cachés cuando actualizan su configuración. Si se cambia el mecanismo de acceso, hay que guardar la regla antes de administrar sus claves o usuarios.
 

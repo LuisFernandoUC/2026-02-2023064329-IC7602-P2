@@ -8,6 +8,7 @@
 #define CFG_MAX_ZONES 16
 #define CFG_NAME_LEN 64
 #define CFG_PATH_LEN 256
+#define CFG_URL_LEN 512
 
 typedef struct {
     char name[CFG_NAME_LEN];
@@ -27,6 +28,13 @@ typedef struct {
     char country_db[CFG_PATH_LEN];
     char zones_file[CFG_PATH_LEN];
     uint32_t ttl;
+    int tcp_enabled;                  /* 1 = también atiende DNS sobre TCP (RFC 7766) */
+    char domains_url[CFG_URL_LEN];    /* endpoint del API con los dominios verificados; vacío = solo DI_DOMAINS */
+    char domains_token[CFG_URL_LEN];  /* token Bearer para ese endpoint */
+    int domains_refresh_seconds;
+    int health_port;                  /* puerto TCP de las cachés zonales que se sondea */
+    int health_interval_seconds;      /* 0 = sin sondeo, todas las zonas se consideran sanas */
+    int health_timeout_ms;
 } config_t;
 
 /* Lee la configuración de las variables de entorno DI_* (ver README).

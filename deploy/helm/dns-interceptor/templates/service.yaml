@@ -6,6 +6,10 @@ metadata:
     {{- include "dns-interceptor.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.service.type }}
+  {{- if and .Values.service.preserveClientIP (ne .Values.service.type "ClusterIP") }}
+  # Sin esto kube-proxy cambia la IP de origen y la geolocalización vería la IP del nodo.
+  externalTrafficPolicy: Local
+  {{- end }}
   selector:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/name: {{ include "dns-interceptor.name" . }}
@@ -17,3 +21,12 @@ spec:
       {{- if and .Values.service.nodePort (eq .Values.service.type "NodePort") }}
       nodePort: {{ .Values.service.nodePort }}
       {{- end }}
+    {{- if .Values.tcp.enabled }}
+    - name: dns-tcp
+      protocol: TCP
+      port: {{ .Values.service.port }}
+      targetPort: dns-tcp
+      {{- if and .Values.service.nodePort (eq .Values.service.type "NodePort") }}
+      nodePort: {{ .Values.service.nodePort }}
+      {{- end }}
+    {{- end }}

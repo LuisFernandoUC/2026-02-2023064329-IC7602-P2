@@ -32,7 +32,7 @@ Tamaños en bytes y TTL en segundos.
 
 `fileTypes` es una lista de tipos de archivo. Cada uno tiene `extension`, `ttlSeconds` y `replacementPolicy`. Las políticas son `LRU`, `LFU`, `FIFO`, `MRU` y `Random`.
 
-`authMode` puede ser `api-key` o `password`. Los usuarios de recursos son distintos de la cuenta del panel.
+`authMode` puede ser `none` (ruta pública, sin claves ni usuarios), `api-key` o `password`. En `fileTypes`, la extensión `*` aplica a los tipos sin fila propia. Los usuarios de recursos son distintos de la cuenta del panel.
 
 Las contraseñas de usuarios de recursos y las API keys se guardan como hashes. Los hashes de contraseñas no se envían a la UI ni a las cachés. Los hashes SHA-256 de las API keys se entregan solo a las cachés autenticadas para que validen `x-api-key`. Una API key se muestra solo al crearla. Las sesiones de recursos usan JWT firmados con el secreto compartido con la caché. Firebase Authentication maneja las cuentas del panel.
 
@@ -123,6 +123,7 @@ La caché guarda el JWT en su cookie. El cierre usa `/__zc/logout`, que borra es
 | --- | --- |
 | Confirmar en el clúster el mismo token de configuración y secreto de sesión que usa la API publicada. La lectura desde la caché local ya se comprobó. | Nicole y Fabricio |
 | Probar el login válido, Apache con MISS/HIT y el cierre de sesión con la caché desplegada. | Nicole y Fabricio, con acceso al entorno de Luis Fernando |
-| Integrar y probar los cambios de `feat/dns-interceptor` que consultan los dominios verificados en `/api/cache/config`. | Nicole y Luis Fernando |
+| Activar en el DNS Interceptor la lectura de dominios verificados (`domainsSync`) con el token real; la rama `feat/dns-interceptor` ya está fusionada. | Luis Fernando y Fabricio |
+| Publicar en Vercel las reglas públicas y el tipo `*`. | Nicole |
 
 El formato de configuración, el origen de los archivos y la actualización de cambios ya están implementados como se describe arriba. La configuración de los servicios y sus credenciales se lee de variables de entorno.

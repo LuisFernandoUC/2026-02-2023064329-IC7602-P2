@@ -112,7 +112,7 @@ export default function DomainDetail({ domain }) {
                         {rule.fileTypes.map((type) => <li key={type.extension} className="rounded bg-soft px-2 py-1 font-mono text-xs">{type.extension}</li>)}
                       </ul>
                     </td>
-                    <td className="whitespace-nowrap px-5 py-5">{rule.authMode === 'api-key' ? 'API key (x-api-key)' : 'Usuario y contraseña'}</td>
+                    <td className="whitespace-nowrap px-5 py-5">{{ none: 'Pública', 'api-key': 'API key (x-api-key)', password: 'Usuario y contraseña' }[rule.authMode] ?? rule.authMode}</td>
                     <td className="px-5 py-5">
                       <div className="flex justify-end gap-4">
                         <a href={`#/dominios/${domain.id}/reglas/${rule.id}/editar`} aria-label={`Editar regla ${rule.pathPattern}`} className="text-link">Editar</a>
