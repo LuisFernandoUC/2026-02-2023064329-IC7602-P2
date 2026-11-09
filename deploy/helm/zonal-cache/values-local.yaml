@@ -48,6 +48,87 @@ config:
             apiKeys:
               - e2bc022cb9c8b0dfd4db95058c79f8422bdecec430dd3907c945509a6c0926bc
 
+      # ---- Sitios externos (pruebas 3 y 4 del README): origen fuera del cluster ----
+      - name: externo-http.cdn.p2.local
+        origin: http://example.com
+        maxCacheSize: 1048576
+        urls:
+          - { id: externo-http, pattern: "/*", cacheSize: 524288, auth: none,
+              fileTypes: [{ extension: html, ttl: 120, replacementPolicy: LRU }] }
+      - name: externo-https.cdn.p2.local
+        origin: https://example.com
+        maxCacheSize: 1048576
+        urls:
+          - { id: externo-https, pattern: "/*", cacheSize: 524288, auth: none,
+              fileTypes: [{ extension: html, ttl: 120, replacementPolicy: LRU }] }
+
+      # ---- Algoritmos de reemplazo (prueba 8) ----
+      # Cada objeto de /api/hello ocupa 107 bytes en disco (65 de cabecera + 42 de cuerpo),
+      # así que cacheSize 350 admite 3 objetos: el 4.º obliga a expulsar uno según la política.
+      - name: lru.cdn.p2.local
+        origin: http://rest-api-java-rest-api-java:8080
+        maxCacheSize: 10000
+        urls:
+          - { id: lru, pattern: "/api/hello", cacheSize: 350, auth: none,
+              fileTypes: [{ extension: "*", ttl: 600, replacementPolicy: LRU }] }
+      - name: lfu.cdn.p2.local
+        origin: http://rest-api-java-rest-api-java:8080
+        maxCacheSize: 10000
+        urls:
+          - { id: lfu, pattern: "/api/hello", cacheSize: 350, auth: none,
+              fileTypes: [{ extension: "*", ttl: 600, replacementPolicy: LFU }] }
+      - name: fifo.cdn.p2.local
+        origin: http://rest-api-java-rest-api-java:8080
+        maxCacheSize: 10000
+        urls:
+          - { id: fifo, pattern: "/api/hello", cacheSize: 350, auth: none,
+              fileTypes: [{ extension: "*", ttl: 600, replacementPolicy: FIFO }] }
+      - name: mru.cdn.p2.local
+        origin: http://rest-api-java-rest-api-java:8080
+        maxCacheSize: 10000
+        urls:
+          - { id: mru, pattern: "/api/hello", cacheSize: 350, auth: none,
+              fileTypes: [{ extension: "*", ttl: 600, replacementPolicy: MRU }] }
+      - name: random.cdn.p2.local
+        origin: http://rest-api-java-rest-api-java:8080
+        maxCacheSize: 10000
+        urls:
+          - { id: random, pattern: "/api/hello", cacheSize: 350, auth: none,
+              fileTypes: [{ extension: "*", ttl: 600, replacementPolicy: Random }] }
+
+      # ---- Límite por dominio (prueba 9) ----
+      # /api/hello: 107 B por objeto, /health: 80 B. Cada URL tiene 350 B propios, pero el
+      # dominio solo 440 B: 3 de /api/hello + 1 de /health caben (401 B); el 2.º de /health no.
+      - name: limite.cdn.p2.local
+        origin: http://rest-api-java-rest-api-java:8080
+        maxCacheSize: 440
+        urls:
+          - { id: limite-hello, pattern: "/api/hello", cacheSize: 350, auth: none,
+              fileTypes: [{ extension: "*", ttl: 600, replacementPolicy: LRU }] }
+          - { id: limite-health, pattern: "/health", cacheSize: 350, auth: none,
+              fileTypes: [{ extension: "*", ttl: 600, replacementPolicy: LRU }] }
+
+      # ---- Vencimiento del TTL ----
+      - name: ttl.cdn.p2.local
+        origin: http://rest-api-java-rest-api-java:8080
+        maxCacheSize: 10000
+        urls:
+          - { id: ttl, pattern: "/api/hello", cacheSize: 5000, auth: none,
+              fileTypes: [{ extension: "*", ttl: 5, replacementPolicy: LRU }] }
+
+      # ---- Usuario y contraseña (prueba 7): sesión JWT firmada con secrets.sessionSecret ----
+      - name: privado.cdn.p2.local
+        origin: http://apache-apache
+        maxCacheSize: 1048576
+        urls:
+          - { id: privado, pattern: "/*", cacheSize: 524288, auth: user_password,
+              fileTypes: [{ extension: html, ttl: 60, replacementPolicy: LRU }] }
+          - { id: privado-otra, pattern: "/otra/*", cacheSize: 524288, auth: user_password,
+              fileTypes: [{ extension: html, ttl: 60, replacementPolicy: LRU }] }
+
+# Formulario de login (sin el API se usa una URL de ejemplo: solo se comprueba la redirección).
+loginUrl: "https://ui.p2.local/#/acceso-recurso"
+
 secrets:
   # Solo para pruebas locales; en el cluster real usar secrets.existingSecret.
   configToken: no-se-usa-con-config-inline
@@ -56,4 +137,4 @@ secrets:
 tls:
   altNames:
     - apache.p2.local
-    - api.cdn.p2.local
+    - "*.cdn.p2.local"
