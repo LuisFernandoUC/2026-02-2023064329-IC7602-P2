@@ -17,6 +17,7 @@ spec:
       annotations:
         # Reinicia los pods cuando cambia la configuración.
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ .Values.domainsSync.token | default "" | sha256sum }}
     spec:
       containers:
         - name: dns-interceptor
@@ -26,9 +27,22 @@ spec:
             - name: dns
               containerPort: {{ .Values.containerPort }}
               protocol: UDP
+            {{- if .Values.tcp.enabled }}
+            - name: dns-tcp
+              containerPort: {{ .Values.containerPort }}
+              protocol: TCP
+            {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "dns-interceptor.fullname" . }}
+          {{- if and .Values.domainsSync.url (or .Values.domainsSync.token .Values.domainsSync.existingSecret) }}
+          env:
+            - name: DI_DOMAINS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.domainsSync.existingSecret | default (include "dns-interceptor.fullname" .) }}
+                  key: domains-token
+          {{- end }}
           # UDP no admite sondas HTTP: se comprueba que el binario cargue la configuración y la base de países.
           livenessProbe:
             exec:

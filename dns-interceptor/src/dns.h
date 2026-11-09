@@ -10,7 +10,9 @@
 
 /* Códigos de respuesta (RCODE) usados por el interceptor. */
 #define DNS_RCODE_NOERROR 0
+#define DNS_RCODE_FORMERR 1
 #define DNS_RCODE_SERVFAIL 2
+#define DNS_RCODE_NOTIMP 4
 
 #define DNS_TYPE_A 1
 #define DNS_CLASS_IN 1
@@ -36,5 +38,11 @@ size_t dns_build_a_response(const uint8_t *req, const dns_query_t *q, uint32_t i
 /* Construye una respuesta sin registros (NODATA con RCODE=0, o error con otro RCODE). */
 size_t dns_build_empty_response(const uint8_t *req, const dns_query_t *q, int rcode,
                                 uint8_t *out, size_t outcap);
+
+/* Respuesta de error para un paquete que no se pudo interpretar como consulta estándar:
+ * FORMERR (formato inválido) o NOTIMP (OPCODE distinto de QUERY). Solo lleva el encabezado.
+ * Devuelve 0 (sin respuesta) si el paquete es muy corto o ya es una respuesta, para no
+ * generar bucles entre servidores. */
+size_t dns_build_error(const uint8_t *req, size_t reqlen, uint8_t *out, size_t outcap);
 
 #endif

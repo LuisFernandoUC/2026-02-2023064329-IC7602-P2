@@ -108,7 +108,35 @@ static void test_build_fails_when_buffer_is_small(void) {
     CHECK(dns_build_empty_response(QUERY_A, &q, 0, out, sizeof(out)) == 0);
 }
 
+static void test_build_error(void) {
+    uint8_t out[64];
+    uint8_t bad[sizeof(QUERY_A)];
+
+    /* Paquete mal formado (qdcount=0): FORMERR conservando ID y RD. */
+    memcpy(bad, QUERY_A, sizeof(bad));
+    bad[5] = 0;
+    CHECK(dns_build_error(bad, sizeof(bad), out, sizeof(out)) == 12);
+    CHECK(out[0] == 0x12 && out[1] == 0x34);
+    CHECK((out[2] & 0x80) != 0 && (out[2] & 0x01) != 0); /* QR=1, RD=1 */
+    CHECK((out[3] & 0x0F) == DNS_RCODE_FORMERR);
+
+    /* OPCODE distinto de QUERY (p. ej. STATUS=2): NOTIMP. */
+    memcpy(bad, QUERY_A, sizeof(bad));
+    bad[2] = 0x10;
+    CHECK(dns_build_error(bad, sizeof(bad), out, sizeof(out)) == 12);
+    CHECK((out[3] & 0x0F) == DNS_RCODE_NOTIMP);
+    CHECK(((out[2] >> 3) & 0x0F) == 2);
+
+    /* Nunca se contesta a una respuesta (evita bucles) ni a lo demasiado corto. */
+    memcpy(bad, QUERY_A, sizeof(bad));
+    bad[2] |= 0x80;
+    CHECK(dns_build_error(bad, sizeof(bad), out, sizeof(out)) == 0);
+    CHECK(dns_build_error(QUERY_A, 11, out, sizeof(out)) == 0);
+    CHECK(dns_build_error(QUERY_A, sizeof(QUERY_A), out, 8) == 0);
+}
+
 void run_dns_tests(void) {
+    test_build_error();
     test_parse_basic();
     test_parse_rejects_invalid();
     test_parse_ecs();

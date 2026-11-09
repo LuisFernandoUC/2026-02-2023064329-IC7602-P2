@@ -5,7 +5,10 @@
 
 static const char *VARS[] = {"DI_PORT",         "DI_DOMAINS",    "DI_ZONE_IPS",
                              "DI_DEFAULT_ZONE", "DI_UPSTREAM_DNS", "DI_TTL",
-                             "DI_UPSTREAM_PORT", "DI_UPSTREAM_TIMEOUT_MS"};
+                             "DI_UPSTREAM_PORT", "DI_UPSTREAM_TIMEOUT_MS",
+                             "DI_TCP", "DI_DOMAINS_URL", "DI_DOMAINS_TOKEN",
+                             "DI_DOMAINS_REFRESH_SECONDS", "DI_HEALTH_PORT",
+                             "DI_HEALTH_INTERVAL_SECONDS", "DI_HEALTH_TIMEOUT_MS"};
 
 static void clear_env(void) {
     for (size_t i = 0; i < sizeof(VARS) / sizeof(VARS[0]); i++) unsetenv(VARS[i]);
@@ -26,6 +29,11 @@ static void test_defaults_and_values(void) {
     CHECK(cfg.n_zones == 2 && cfg.n_domains == 0);
     CHECK(config_zone_ip(&cfg, "europa", &ip) == 0 && ip == ((10u << 24) | (96u << 16) | 11u));
     CHECK(config_zone_ip(&cfg, "asia", &ip) == -1);
+    /* Valores por defecto de las funciones nuevas. */
+    CHECK(cfg.tcp_enabled == 1);
+    CHECK(cfg.domains_url[0] == 0 && cfg.domains_token[0] == 0);
+    CHECK(cfg.domains_refresh_seconds == 30);
+    CHECK(cfg.health_port == 80 && cfg.health_interval_seconds == 5 && cfg.health_timeout_ms == 1000);
 
     setenv("DI_PORT", "5300", 1);
     setenv("DI_TTL", "60", 1);
@@ -36,6 +44,14 @@ static void test_defaults_and_values(void) {
     CHECK_STR(cfg.default_zone, "europa");
     CHECK(cfg.n_domains == 2);
     CHECK_STR(cfg.domains[0], "apache.p2.local");
+    setenv("DI_DOMAINS_URL", "https://api.example.app/api/cache/config", 1);
+    setenv("DI_DOMAINS_TOKEN", "secreto", 1);
+    setenv("DI_TCP", "0", 1);
+    setenv("DI_HEALTH_INTERVAL_SECONDS", "0", 1);
+    CHECK(config_from_env(&cfg, err, sizeof(err)) == 0);
+    CHECK_STR(cfg.domains_url, "https://api.example.app/api/cache/config");
+    CHECK_STR(cfg.domains_token, "secreto");
+    CHECK(cfg.tcp_enabled == 0 && cfg.health_interval_seconds == 0);
     clear_env();
 }
 
@@ -59,6 +75,16 @@ static void test_invalid_values(void) {
 
     setenv("DI_ZONE_IPS", "america=10.0.0.1", 1);
     setenv("DI_DEFAULT_ZONE", "asia", 1); /* la zona por defecto debe existir */
+    CHECK(config_from_env(&cfg, err, sizeof(err)) == -1);
+
+    unsetenv("DI_DEFAULT_ZONE");
+    setenv("DI_DOMAINS_REFRESH_SECONDS", "0", 1);
+    CHECK(config_from_env(&cfg, err, sizeof(err)) == -1);
+    unsetenv("DI_DOMAINS_REFRESH_SECONDS");
+    setenv("DI_HEALTH_PORT", "0", 1);
+    CHECK(config_from_env(&cfg, err, sizeof(err)) == -1);
+    unsetenv("DI_HEALTH_PORT");
+    setenv("DI_TCP", "2", 1);
     CHECK(config_from_env(&cfg, err, sizeof(err)) == -1);
     clear_env();
 }

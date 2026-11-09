@@ -23,5 +23,7 @@ void run_dns_tests(void);
 void run_geo_tests(void);
 void run_config_tests(void);
 void run_resolver_tests(void);
+void run_domains_tests(void);
+void run_health_tests(void);
 
 #endif
