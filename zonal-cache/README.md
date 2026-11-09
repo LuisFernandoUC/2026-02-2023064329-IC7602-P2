@@ -121,6 +121,32 @@ ZC_CACHE_DIR/
 - Si la UI reduce un límite, el exceso se expulsa en el siguiente acceso a esa URL.
 - Un solo mutex protege el índice, porque cada conexión se atiende en su propio hilo.
 
+Estructura en memoria (índice y estado de las políticas):
+
+```mermaid
+flowchart LR
+    C["zc_cache_t<br/>mutex global"] --> D1["dominio apache.p2.local<br/>max = maxCacheSize"]
+    D1 --> P1["partición /*<br/>max = cacheSize"]
+    D1 --> P2["partición /privado/*<br/>max = cacheSize"]
+    P1 --> T1["tipo html · LRU"]
+    P1 --> T2["tipo css · FIFO"]
+    P1 --> T3["tipo png · LFU"]
+    T1 --> E1["entradas: clave → archivo .obj,<br/>tamaño, expiración"]
+```
+
+Cómo se hace espacio al guardar un objeto (`cache_put` → `apply_scope`):
+
+```mermaid
+flowchart TD
+    S["Respuesta 200 cacheable de tamaño s"] --> G{"¿s mayor que el límite<br/>de la regla o del dominio?"}
+    G -- sí --> X["No se guarda<br/>(CACHE_TOO_LARGE)"]
+    G -- no --> PR{"¿Cabe en la regla?"}
+    PR -- no --> V1["Víctima del mismo tipo según su política;<br/>si ese tipo está vacío, del tipo que más ocupa"] --> PR
+    PR -- sí --> DO{"¿Cabe en el dominio?"}
+    DO -- no --> V2["Víctima de esta regla o, si está vacía,<br/>de la regla que más ocupa en el dominio"] --> DO
+    DO -- sí --> W["Escribir .obj, policy_on_insert,<br/>sumar tamaños"]
+```
+
 ### Encabezados hacia el origen
 
 [src/proxy.c](src/proxy.c) (`build_origin_headers`) copia los encabezados del cliente, excepto:
@@ -229,17 +255,17 @@ También se aceptan los nombres de campos del borrador del API Node.js ([Docs/Co
 | `urls` | `rules` |
 | `pattern` | `pathPattern` |
 | `cacheSize` (URL) | `maxCacheBytes` |
-| `auth` | `authMode` (`api-key`, `password`) |
+| `auth` | `authMode` (`none`, `api-key`, `password`) |
 | `fileTypes[].ttl` | `fileTypes[].ttlSeconds` |
 | `policy` | `replacementPolicy` en la regla, como valor por defecto; cada `fileTypes[].replacementPolicy` tiene prioridad para su tipo |
 | `apiKeys[].hash` | `apiKeys[].keyHash` |
 
 Solo se guardan respuestas `200` a `GET` cuyo tipo de archivo tiene TTL y que el origen no marcó con `Cache-Control: no-store` o `private`. El resto pasa directo al origen (`X-Cache: BYPASS`).
 
-**Diferencias actuales con el API Node.js** ([api-node/rules.js](../api-node/rules.js)):
+**Compatibilidad con el API Node.js** ([api-node/rules.js](../api-node/rules.js)):
 
-- El API solo acepta `authMode` `api-key` o `password`. La caché también soporta `none`, pero desde la UI todavía no se puede crear una regla pública. Una ruta sin regla se sirve, pero como `BYPASS`, sin guardarse.
-- El API no acepta el tipo de archivo `*`, así que hay que listar cada extensión. Las rutas sin extensión (`/`, `/api/items`) cuentan como `html`.
+- El API acepta `authMode` `none` (ruta pública), `api-key` o `password`, y la caché los recibe tal cual. Una ruta que no coincide con ninguna regla se sirve, pero como `BYPASS`, sin guardarse.
+- El API acepta el tipo de archivo `*`, que la caché aplica a las extensiones sin fila propia. Las rutas sin extensión (`/`, `/api/items`) cuentan como `html`.
 - La UI y la caché usan una política por tipo de archivo. El límite de tamaño sigue siendo el total de la regla; no se multiplica por la cantidad de tipos.
 - `ttlSeconds: 0` significa "no guardar ese tipo".
 
@@ -399,15 +425,16 @@ kubectl get svc -l app.kubernetes.io/name=zonal-cache   # IPs para el DNS Interc
 | SSL termination (HTTPS con OpenSSL) | Implementado |
 | Caché en disco con límite por dominio y por URL | Implementado |
 | LRU, LFU, FIFO, MRU, Random | Implementado |
-| TTL y política de reemplazo por tipo de archivo | Implementado y probado; los tipos comparten el límite de tamaño de la regla. Falta desplegar este cambio en el clúster |
+| TTL y política de reemplazo por tipo de archivo | Implementado, probado y desplegado en el clúster (08/11/2026); los tipos comparten el límite de tamaño de la regla |
 | Comodines en dominios y URLs | Implementado |
+| Rutas públicas (`none`) | Implementado; el API y la UI ya permiten crearlas |
 | Autenticación `x-api-key` | Implementado |
 | Usuario y contraseña (login en la UI y sesión JWT) | La caché, `POST /api/cache/sessions` y el formulario están implementados. La redirección a la UI publicada se probó desde la caché local. Falta el login válido y el recorrido completo con la caché desplegada |
 | Configuración desde Firebase (vía API Node.js) con recarga periódica | La caché local leyó la API de Vercel con `proxycache.duckdns.org` verificado por TXT. Falta comprobar la configuración en el clúster; las pruebas anteriores de Kubernetes usan `config.inline` (`values-local.yaml`) |
 | Origen HTTP y HTTPS | Implementado y probado (Apache, Rest API Java, example.com, wikipedia) |
 | Dockerfile, Docker Compose y Helm Chart | Implementado y probado en Kubernetes de Docker Desktop |
 | Pruebas unitarias | 102 pruebas, 0 fallidas |
-| Pruebas de integración en Kubernetes | [deploy/test-k8s.sh](../deploy/test-k8s.sh) |
+| Pruebas de integración en Kubernetes | [deploy/test-k8s.sh](../deploy/test-k8s.sh): 50 de 50 el 08/11/2026 |
 
 Las comprobaciones con la API real y las pruebas que faltan para completar el flujo están en [el README principal](../README.md#92-pruebas-de-api-y-ui-en-vercel).
 

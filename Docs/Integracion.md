@@ -4,7 +4,7 @@
 
 Este documento explica cómo se conecta la Zonal Cache con los componentes de las demás ramas:
 
-- el DNS Interceptor (`feat/dns-interceptor`),
+- el DNS Interceptor (`feat/dns-interceptor`, ya fusionada),
 - los charts de Apache y la Rest API Java (`feat/deploy-base`),
 - el API Node.js y la UI (`api-ui`).
 
@@ -95,15 +95,15 @@ flowchart LR
 | Nombre de las zonas | `america`, `europa`, `asia` (`values.yaml`) | DNS: los mismos nombres en `country_zones.csv` y `values.yaml` | Coincide |
 | IP de cada caché | Service `<release>-zonal-cache-<zona>` | DNS: `lookup` del Service `<zonalCache.release>-zonal-cache-<zona>` | Coincide (release `zonal-cache`) |
 | Puerto que ve el cliente | Service 80 (HTTP) y 443 (HTTPS) | DNS responde solo con la IP (registro A) | Coincide |
-| Dominios atendidos | `domains[].name` de la configuración | DNS: lista fija `apache.p2.local`, `*.cdn.p2.local` | Hay que mantenerlas iguales (sección 7) |
+| Dominios atendidos | `domains[].name` de la configuración | DNS: lista fija `apache.p2.local`, `*.cdn.p2.local` y, con `domainsSync.url`, los dominios verificados de `/api/cache/config` | Integrado (rama `feat/dns-interceptor` fusionada); la sincronización con el API se activa con el token real (sección 7) |
 | Servidor de origen | `domains[].origin` o `originUrl` | El formulario pide `originUrl` y la API lo valida y guarda al agregar el dominio | Implementado en API y UI; los dominios anteriores pueden no tenerlo |
 | Configuración | `GET ZC_CONFIG_URL` con todos los dominios | API: `GET /api/cache/config` entrega los dominios verificados y sus reglas | Probado desde la caché local contra Vercel; falta comprobar el despliegue en el clúster |
 | Autenticar la caché ante el API | `Authorization: Bearer <ZC_CONFIG_TOKEN>` | API: compara el token con `CACHE_API_TOKEN` | Probado contra la API publicada; falta confirmar la configuración del clúster |
 | API keys | SHA-256 en `apiKeys[]` (valida localmente) | API: entrega solo `keyHash` a la caché autenticada | Creación, listado de IDs y eliminación conectados a la UI |
 | Formato de reglas | `pattern`, `cacheSize`, `auth`, `fileTypes[].ttl` | API: `pathPattern`, `maxCacheBytes`, `authMode`, `ttlSeconds` | La caché acepta ambos nombres |
 | Política de reemplazo | Una por tipo de archivo | UI y API: `fileTypes[].replacementPolicy` | Coincide; los tipos comparten el límite de tamaño de la regla |
-| Reglas públicas | `auth: none` | API: `authMode` solo acepta `api-key` o `password` | Opción de la caché que no se expone en la UI; el enunciado pide API key o usuario y contraseña |
-| Cualquier tipo de archivo | `fileTypes[].extension: "*"` | API: la validación de extensiones rechaza `*` | Se configura cada extensión; las rutas sin extensión cuentan como `html`. Aceptar `*` sería una mejora opcional |
+| Reglas públicas | `auth: none` | API y UI: `authMode: "none"` ("Sin autenticación") | Coincide. El enunciado indica que la caché verifica "si es necesario validar seguridad", así que hay rutas sin seguridad |
+| Cualquier tipo de archivo | `fileTypes[].extension: "*"` | API y UI aceptan `*` | Coincide; `*` aplica a las extensiones sin fila propia y las rutas sin extensión cuentan como `html` |
 | Dominios verificados | `/api/cache/config` solo entrega `verified: true` | API: `POST /api/domains/:domainId/verify` consulta el TXT | Probado con `proxycache.duckdns.org`; el estado persiste y el dominio aparece en la configuración |
 | Login de recursos | `ZC_LOGIN_URL?domain&path&callback` → JWT HS256 | UI: `#/acceso-recurso` conectado a `POST /api/cache/sessions` | Implementado; falta probar con la caché desplegada y el secreto compartido |
 | Sesión por recurso | Claim `rule` = `id` de la regla | API: firma el dominio, usuario, regla y vencimiento | Implementado en API y caché |
@@ -236,6 +236,7 @@ El DNS Interceptor se instala **después** de la caché, porque busca la IP de l
 | [src/util.c](../zonal-cache/src/util.c) | Valor inicial correcto de FNV-1a 64 (`14695981039346656037`); antes le faltaba un dígito y fallaba la prueba `fnv_is_deterministic`. |
 | [docker-compose.yml](../zonal-cache/docker-compose.yml) | El comando del contenedor `certs` se partía en varias líneas (bloque `>` de YAML con sangría desigual) y `openssl` no recibía `-subj` ni `-keyout`. |
 | [deploy/test-k8s.sh](../deploy/test-k8s.sh) | Script nuevo con las pruebas de integración de la sección 8. |
+| `deploy/test-k8s.sh` (08/11) | Pruebas de DNS sobre TCP y, con `--failover`, del respaldo de zonas, después de fusionar `feat/dns-interceptor`. |
 
 ## 6. Estado del API Node.js y la UI
 
@@ -299,12 +300,14 @@ Las rutas para crear y administrar usuarios y claves están en [API-Node.md](Con
 
 ## 7. DNS Interceptor
 
-Los nombres de zona y de Service coinciden. Esta rama todavía usa la lista fija de dominios; los cambios para leerlos del API están en `feat/dns-interceptor` y faltan por integrar y probar aquí.
+Los nombres de zona y de Service coinciden. La rama `feat/dns-interceptor` (dominios del API, respaldo de zonas y DNS sobre TCP) ya está fusionada; `deploy/test-k8s.sh` prueba el TCP y, con `--failover`, el respaldo de zonas.
 
 - **Dominios:**
   - `values.yaml` intercepta `apache.p2.local` y `*.cdn.p2.local`, y [values-local.yaml](../deploy/helm/zonal-cache/values-local.yaml) usa los mismos dominios: `apache.p2.local` y `api.cdn.p2.local`.
-  - Al registrar dominios reales en la UI, hay que agregarlos con `--set "domains={a.com,b.com}"`.
-  - Pendiente de Luis Fernando y Nicole: integrar y probar la lectura de dominios verificados del API que está en `feat/dns-interceptor`.
+  - Los dominios verificados en la UI se atienden activando la sincronización: `--set domainsSync.url=https://zonal-cache-api.vercel.app/api/cache/config --set domainsSync.token=$CACHE_API_TOKEN`. Un dominio del API cubre también sus subdominios; si el API cae se conserva la última lista buena.
+  - Sin sincronización, se agregan a mano con `--set "domains={a.com,b.com}"`.
+- **Respaldo de zonas:** el interceptor sondea por TCP el puerto 80 de cada caché cada 5 s. Si la zona del país no responde, contesta con la zona por defecto o con otra sana. Probado apagando europa: un cliente de España recibió america y volvió a europa al encenderla.
+- **DNS sobre TCP:** el Service publica el puerto 53 por UDP y TCP (NodePort 30053). Dentro del cluster funciona; Docker Desktop no reenvía el NodePort TCP al equipo, así que desde ahí se usa `kubectl port-forward svc/dns-interceptor-dns-interceptor 5354:53`.
 - **IP del Service:**
   - El interceptor responde con la IP `ClusterIP` de la caché. Esa IP solo es alcanzable dentro del cluster.
   - Para probar desde el equipo, se puede usar un pod cliente (sección 8).
@@ -345,13 +348,15 @@ curl -si -H 'x-api-key: clave-valida' --resolve api.cdn.p2.local:80:<IP> http://
 Todas estas pruebas, y otras más, están automatizadas en [deploy/test-k8s.sh](../deploy/test-k8s.sh):
 
 ```bash
-deploy/test-k8s.sh            # integración
-deploy/test-k8s.sh --unit     # + pruebas unitarias de la caché y del DNS Interceptor
+deploy/test-k8s.sh                     # integración
+deploy/test-k8s.sh --unit              # + pruebas unitarias de la caché y del DNS Interceptor
+deploy/test-k8s.sh --unit --failover   # + respaldo de zonas (apaga europa y la vuelve a encender)
 ```
 
-El 03/11/2026, con Kubernetes de Docker Desktop, dio **47 correctas y 0 fallidas**. Cubre:
+El 08/11/2026, con Kubernetes de Docker Desktop reinstalado desde cero y la rama del DNS fusionada, `--unit --failover` dio **50 correctas y 0 fallidas**. Cubre:
 
-- el DNS de las tres zonas, el comodín, la zona por defecto, el reenvío y el NodePort desde el equipo;
+- el DNS de las tres zonas, el comodín, la zona por defecto, el reenvío, DNS sobre TCP y el NodePort UDP desde el equipo;
+- el respaldo de zonas con la caché europa apagada;
 - health, MISS y luego HIT, y la independencia de cada zona;
 - HTTPS;
 - `x-api-key` y GET/POST/PUT/DELETE de la Rest API Java;
@@ -376,6 +381,6 @@ helm upgrade --install zonal-cache deploy/helm/zonal-cache \
 | --- | --- |
 | Confirmar que la caché desplegada usa la API de Vercel y los mismos secretos de configuración y sesión; la API publicada ya está configurada | Fabricio y Nicole |
 | Probar login válido, Apache con MISS/HIT y cierre de sesión con la caché desplegada | Nicole y Fabricio, con acceso al entorno de Luis Fernando |
-| Reconstruir y desplegar la imagen con las políticas por tipo de archivo; el código ya pasó las 102 pruebas de caché | Fabricio |
-| Integrar y probar los cambios de `feat/dns-interceptor` para leer dominios verificados del API | Luis Fernando y Nicole |
+| Activar `domainsSync` del DNS Interceptor con el token real y comprobar que atiende `proxycache.duckdns.org` | Luis Fernando y Fabricio |
+| Publicar en Vercel las reglas públicas (`none`) y el tipo `*` (ya están en el código y en las pruebas) | Nicole |
 | Las respuestas de la Rest API Java guardadas en caché pueden quedar viejas hasta su TTL después de un POST, PUT o DELETE | Documentado; usar TTL bajos en `/api/*` |

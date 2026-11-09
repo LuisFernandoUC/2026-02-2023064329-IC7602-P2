@@ -121,6 +121,32 @@ test('guarda los campos de la regla y los conserva al consultar la lista', async
   assert.deepEqual(await other.json(), []);
 });
 
+test('acepta reglas públicas y el tipo de archivo comodín', async (t) => {
+  const records = mockFirebase(t);
+  const fileTypes = [
+    { extension: '*', ttlSeconds: 30, replacementPolicy: 'FIFO' },
+    { extension: 'png', ttlSeconds: 3600, replacementPolicy: 'LFU' },
+  ];
+  const response = await request('POST', '', validRule({ authMode: 'none', fileTypes }));
+  assert.equal(response.status, 201);
+  const rule = await response.json();
+  assert.equal(rule.authMode, 'none');
+  assert.deepEqual(rule.fileTypes, fileTypes);
+  assert.deepEqual(records.get(`domains/dominio-a/rules/${rule.id}`).fileTypes, fileTypes);
+
+  for (const extension of ['**', '*.html', '*png', 'h*ml']) {
+    const invalid = await request('POST', '', validRule({ fileTypes: [{ extension, ttlSeconds: 30, replacementPolicy: 'LRU' }] }));
+    assert.equal(invalid.status, 400, `extensión ${JSON.stringify(extension)}`);
+  }
+});
+
+test('una regla pública no admite claves ni usuarios', async (t) => {
+  const records = mockFirebase(t);
+  records.set('domains/dominio-a/rules/regla-a', validRule({ authMode: 'none' }));
+  assert.equal((await request('POST', '/regla-a/keys')).status, 409);
+  assert.equal((await request('POST', '/regla-a/users', { username: 'lector', password: 'secreta' })).status, 409);
+});
+
 test('valida las reglas antes de escribir en Firestore', async (t) => {
   const records = mockFirebase(t);
   for (const changes of [

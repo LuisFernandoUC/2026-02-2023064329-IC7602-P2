@@ -106,8 +106,8 @@ export default function RuleForm({ domain, ruleId }) {
       const ttlInput = form.elements.namedItem(`ttl-${type.rowId}`);
       const extension = extensionInput.value.trim().replace(/^\./, '').toLowerCase();
 
-      if (!/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(extension)) {
-        showFieldError(extensionInput, 'Escribe una extensión como png, jpg o pdf, sin rutas ni espacios.');
+      if (extension !== '*' && !/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(extension)) {
+        showFieldError(extensionInput, 'Escribe una extensión como png, jpg o pdf, o * para cualquier tipo, sin rutas ni espacios.');
         return;
       }
 
@@ -178,7 +178,7 @@ export default function RuleForm({ domain, ruleId }) {
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
                 <h2 id="file-types-title" className="text-lg font-semibold">Tipos de archivo y políticas</h2>
-                <p className="mt-2 text-sm text-muted">Define el TTL en segundos y la política de reemplazo de cada extensión.</p>
+                <p className="mt-2 text-sm text-muted">Define el TTL en segundos y la política de reemplazo de cada extensión. Usa <code>*</code> para cualquier tipo sin fila propia; las rutas sin extensión cuentan como <code>html</code> y un TTL de 0 no guarda ese tipo.</p>
               </div>
               <button type="button" onClick={addFileType} className="text-link text-sm font-medium">+ Agregar tipo de archivo</button>
             </div>
@@ -224,7 +224,11 @@ export default function RuleForm({ domain, ruleId }) {
 
           <fieldset className="rounded-xl border border-line bg-surface p-6">
             <legend className="px-2 text-lg font-semibold">Mecanismo de acceso</legend>
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 md:grid-cols-3">
+              <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-line p-4 has-checked:border-primary has-checked:bg-soft">
+                <input name="auth-mode" type="radio" value="none" checked={authMode === 'none'} onChange={() => setAuthMode('none')} className="accent-primary" required />
+                <span className="text-sm font-medium">Sin autenticación (pública)</span>
+              </label>
               <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-line p-4 has-checked:border-primary has-checked:bg-soft">
                 <input name="auth-mode" type="radio" value="api-key" checked={authMode === 'api-key'} onChange={() => setAuthMode('api-key')} className="accent-primary" required />
                 <span className="text-sm font-medium">API key (x-api-key)</span>
@@ -237,7 +241,9 @@ export default function RuleForm({ domain, ruleId }) {
           </fieldset>
         </form>
 
-        {rule && authMode === rule.authMode ? (
+        {authMode === 'none' ? (
+          <p className="rounded border border-line bg-soft p-4 text-sm text-muted">Las rutas públicas no necesitan claves ni usuarios: la caché las sirve y guarda sin pedir credenciales.</p>
+        ) : rule && authMode === rule.authMode ? (
           <RuleCredentials key={`${rule.id}/${authMode}`} domainId={domain.id} rule={rule} authMode={authMode} />
         ) : (
           <p className="rounded border border-line bg-soft p-4 text-sm text-muted">{rule ? 'Guarda el cambio de mecanismo de acceso para administrar sus claves o usuarios.' : 'Guarda la regla para administrar sus claves o usuarios.'}</p>

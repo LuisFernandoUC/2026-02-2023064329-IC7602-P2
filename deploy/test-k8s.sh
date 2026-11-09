@@ -11,15 +11,17 @@
 # Crea un pod temporal (alpine + curl + dig) dentro del cluster, porque las IPs de
 # las cachés son ClusterIP y solo se alcanzan desde adentro. Desde ese pod prueba:
 #   1. Orígenes directos (Apache y Rest API Java).
-#   2. DNS Interceptor: zona según el país (EDNS Client Subnet), comodín, reenvío.
+#   2. DNS Interceptor: zona según el país (EDNS Client Subnet), comodín, reenvío, TCP.
 #   3. Zonal Cache en cada zona: health, MISS -> HIT, independencia entre zonas.
 #   4. SSL termination (HTTPS).
 #   5. Rest API Java a través de la caché: x-api-key, GET/POST/PUT/DELETE.
 #   6. Respuestas de error propias de la caché (404 dominio, 508 bucle).
 #   7. (opcional, --unit) Pruebas unitarias de la caché y del DNS Interceptor.
+#   8. (opcional, --failover) Respaldo de zonas: apaga la caché europa y comprueba que el DNS
+#      envíe a sus clientes a otra zona sana; después la vuelve a encender.
 #
 # Uso:
-#   deploy/test-k8s.sh [-n namespace] [--unit] [--keep] [-h]
+#   deploy/test-k8s.sh [-n namespace] [--unit] [--failover] [--keep] [-h]
 #
 # Variables de entorno (por si los releases tienen otros nombres):
 #   APACHE_RELEASE, REST_RELEASE, CACHE_RELEASE, DNS_RELEASE, ZONES, API_KEY
@@ -28,6 +30,7 @@ set -uo pipefail
 
 NAMESPACE="default"
 RUN_UNIT=0
+RUN_FAILOVER=0
 KEEP_POD=0
 
 APACHE_RELEASE="${APACHE_RELEASE:-apache}"
@@ -50,7 +53,7 @@ declare -A SUBNET_ZONE=(
 )
 
 usage() {
-    sed -n '3,26p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '3,28p' "$0" | sed 's/^# \{0,1\}//'
     exit 0
 }
 
@@ -58,6 +61,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         -n|--namespace) NAMESPACE="$2"; shift 2 ;;
         --unit) RUN_UNIT=1; shift ;;
+        --failover) RUN_FAILOVER=1; shift ;;
         --keep) KEEP_POD=1; shift ;;
         -h|--help) usage ;;
         *) echo "Opción desconocida: $1 (use -h)"; exit 2 ;;
@@ -164,7 +168,7 @@ done
 DNS_IP="$(svc_ip "$DNS_SVC")"
 DNS_PORT="$(kc get svc "$DNS_SVC" -o jsonpath='{.spec.ports[0].port}')"
 DNS_NODEPORT="$(kc get svc "$DNS_SVC" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null)"
-info "DNS Interceptor -> $DNS_IP:$DNS_PORT/udp (NodePort ${DNS_NODEPORT:-ninguno})"
+info "DNS Interceptor -> $DNS_IP:$DNS_PORT ($(kc get svc "$DNS_SVC" -o jsonpath='{.spec.ports[*].protocol}' | tr ' ' '+'), NodePort ${DNS_NODEPORT:-ninguno})"
 
 # Pod de pruebas
 trap cleanup EXIT
@@ -216,6 +220,16 @@ if [ -n "$got" ] && [[ " ${ZONE_IP[*]} " != *" $got "* ]]; then
     pass "Dominio no interceptado (google.com) se reenvía al DNS externo -> $got"
 else
     fail "Reenvío de google.com" "respondió '${got:-nada}'"
+fi
+
+# DNS sobre TCP (RFC 7766): solo si el Service publica también el puerto TCP.
+if kc get svc "$DNS_SVC" -o jsonpath='{.spec.ports[*].protocol}' | grep -qw TCP; then
+    got="$(dns_query +tcp "$APACHE_HOST" +subnet=1.0.16.0/24)"
+    [ "$got" = "${ZONE_IP[asia]:-x}" ] \
+        && pass "DNS sobre TCP: $APACHE_HOST desde 1.0.16.0/24 -> $got (asia)" \
+        || fail "DNS sobre TCP" "respondió '${got:-nada}', esperado ${ZONE_IP[asia]:-?}"
+else
+    info "El Service del DNS Interceptor no publica TCP; se omite la prueba de DNS sobre TCP."
 fi
 
 if [ -n "$DNS_NODEPORT" ] && command -v dig >/dev/null; then
@@ -322,6 +336,45 @@ if [ "$RUN_UNIT" -eq 1 ]; then
     fi
 else
     info "Pruebas unitarias omitidas (use --unit para incluirlas)."
+fi
+
+# ================================================================ 8. respaldo de zonas
+# El DNS Interceptor sondea cada caché por TCP (DI_HEALTH_*). Si la zona del país no
+# responde, contesta con la zona por defecto o con otra zona sana.
+if [ "$RUN_FAILOVER" -eq 1 ]; then
+    section "8. Respaldo de zonas (caché europa apagada)"
+    EU_DEPLOY="$CACHE_RELEASE-zonal-cache-europa"
+    restore_europa() {
+        kc scale deploy/"$EU_DEPLOY" --replicas=1 >/dev/null 2>&1
+        kc rollout status deploy/"$EU_DEPLOY" --timeout=120s >/dev/null 2>&1
+    }
+    if [ -z "${ZONE_IP[europa]:-}" ] || ! kc get deploy "$EU_DEPLOY" >/dev/null 2>&1; then
+        info "No existe la zona europa; se omite la prueba."
+    else
+        kc scale deploy/"$EU_DEPLOY" --replicas=0 >/dev/null
+        kc wait --for=delete pod -l "app.kubernetes.io/instance=$CACHE_RELEASE,zonal-cache/zone=europa" --timeout=60s >/dev/null 2>&1
+        got=""
+        for _ in $(seq 1 15); do   # el sondeo corre cada 5 s por defecto
+            got="$(dns_query "$APACHE_HOST" +subnet=80.58.61.0/24)"
+            [ -n "$got" ] && [ "$got" != "${ZONE_IP[europa]}" ] && break
+            sleep 2
+        done
+        if [ -n "$got" ] && [ "$got" != "${ZONE_IP[europa]}" ] && [[ " ${ZONE_IP[*]} " == *" $got "* ]]; then
+            pass "Cliente de España con europa apagada -> $got (otra zona sana)"
+        else
+            fail "Respaldo de zonas" "con europa apagada respondió '${got:-nada}'"
+        fi
+        restore_europa
+        got=""
+        for _ in $(seq 1 15); do
+            got="$(dns_query "$APACHE_HOST" +subnet=80.58.61.0/24)"
+            [ "$got" = "${ZONE_IP[europa]}" ] && break
+            sleep 2
+        done
+        [ "$got" = "${ZONE_IP[europa]}" ] \
+            && pass "Europa encendida de nuevo: el cliente de España vuelve a $got (europa)" \
+            || fail "Recuperación de la zona europa" "respondió '${got:-nada}'"
+    fi
 fi
 
 # ================================================================ resumen

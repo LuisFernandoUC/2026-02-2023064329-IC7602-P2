@@ -33,8 +33,9 @@ function ruleData(body, domainLimit) {
   if (!Number.isSafeInteger(body.maxCacheBytes) || body.maxCacheBytes <= 0 || body.maxCacheBytes > domainLimit) {
     return { error: 'El tamaño de la regla debe ser un entero positivo de bytes y no superar el límite del dominio.' };
   }
-  if (!['api-key', 'password'].includes(body.authMode)) {
-    return { error: 'Selecciona API key o usuario y contraseña.' };
+  // "none" deja la ruta pública: la caché la guarda sin pedir credenciales.
+  if (!['none', 'api-key', 'password'].includes(body.authMode)) {
+    return { error: 'Selecciona sin autenticación, API key o usuario y contraseña.' };
   }
   if (!Array.isArray(body.fileTypes) || body.fileTypes.length === 0) {
     return { error: 'Agrega al menos un tipo de archivo.' };
@@ -43,7 +44,8 @@ function ruleData(body, domainLimit) {
   const fileTypes = [];
   for (const type of body.fileTypes) {
     const extension = typeof type?.extension === 'string' ? type.extension.trim().replace(/^\./, '').toLowerCase() : '';
-    if (!/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(extension) || extensions.has(extension)) {
+    // "*" aplica a cualquier extensión que no tenga un tipo propio en la regla.
+    if ((extension !== '*' && !/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(extension)) || extensions.has(extension)) {
       return { error: 'Los tipos de archivo deben tener extensiones válidas y no repetirse.' };
     }
     if (!Number.isSafeInteger(type.ttlSeconds) || type.ttlSeconds < 0 || !policies.includes(type.replacementPolicy)) {

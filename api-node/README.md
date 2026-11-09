@@ -109,7 +109,7 @@ El cuerpo de creación o edición usa bytes y segundos:
 {"pathPattern":"/prueba/*","maxCacheBytes":524288,"authMode":"api-key","fileTypes":[{"extension":"html","ttlSeconds":60,"replacementPolicy":"LRU"}]}
 ```
 
-El patrón empieza con `/` y puede incluir comodines. El tamaño es un entero positivo que no supera el límite del dominio. Debe haber al menos una extensión, sin repeticiones, con TTL entero mayor o igual que cero y política `LRU`, `LFU`, `FIFO`, `MRU` o `Random`. Se acepta `api-key` o `password` como mecanismo de acceso.
+El patrón empieza con `/` y puede incluir comodines. El tamaño es un entero positivo que no supera el límite del dominio. Debe haber al menos una extensión, sin repeticiones, con TTL entero mayor o igual que cero y política `LRU`, `LFU`, `FIFO`, `MRU` o `Random`. La extensión `*` aplica a los tipos sin fila propia. Se acepta `none` (ruta pública), `api-key` o `password` como mecanismo de acceso; una regla `none` no admite claves ni usuarios (`409`).
 
 Las reglas se guardan en `domains/{domainId}/rules/{ruleId}` y pueden configurarse antes de verificar el dominio. Una edición conserva su ID y las subcolecciones. Una eliminación usa `recursiveDelete`; no se puede deshacer desde la UI.
 

@@ -242,9 +242,9 @@ viene con las herramientas de línea de comandos). La imagen de Docker ya la inc
 | Respuestas A con la IP de la caché zonal según el país (probado con `dig +subnet`) | Solo IPv4: no hay registros AAAA ni búsquedas de países para clientes IPv6           |
 | Reenvío de dominios no interceptados al DNS externo, por UDP y por TCP             | Sin caché de respuestas del DNS externo: cada consulta se reenvía                    |
 | Comodines (`*.dominio`) y zona por defecto                                         | No valida DNSSEC                                                                     |
-| Dominios dinámicos desde el API (con refresco y última lista buena si el API cae)  | Depende de que el API implemente `GET /api/cache/config` (aún no está en `api-node`)  |
+| Dominios dinámicos desde el API (con refresco y última lista buena si el API cae)  | Se activa con `domainsSync.url` y el token real del API; no se probó en el cluster sin ese token |
 | Respaldo de zonas: si una caché no responde se desvía a otra zona sana             | El sondeo es una conexión TCP: no comprueba que la caché sirva contenido             |
-| DNS sobre TCP (RFC 7766), FORMERR/NOTIMP y tope de consultas simultáneas            | Con Docker Desktop (un nodo) el cliente llega con la IP del gateway: probar con ECS  |
+| DNS sobre TCP (RFC 7766), FORMERR/NOTIMP y tope de consultas simultáneas            | Con Docker Desktop (un nodo) el cliente llega con la IP del gateway: probar con ECS. Además, el NodePort TCP no llega al equipo: usar `kubectl port-forward svc/dns-interceptor-dns-interceptor 5354:53` |
 | Despliegue con Helm y obtención automática de las IPs de las cachés zonales        | El nombre de dominio de las respuestas A se limita a registros de tipo A             |
 | Imagen sin privilegios, apagado limpio con SIGTERM                                 |                                                                                      |
 | Pruebas unitarias (`make test`)                                                    |                                                                                      |
