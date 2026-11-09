@@ -26,7 +26,6 @@
 
 ## 1. Descripción general
 
-> Esta documentación está escrita para una persona con conocimientos básicos de computación: debe poder ejecutar y probar el proyecto siguiéndola paso a paso.
 
 **Objetivo general:** implementar un proxy/caché de aplicación con geolocalización.
 
@@ -58,7 +57,7 @@ El sistema intercepta peticiones DNS de dominios específicos, las redirige a un
 | Carné      | Nombre                       | Componentes a cargo                                                                            |
 | ---------- | ---------------------------- | ---------------------------------------------------------------------------------------------- |
 | 2023064329 | Luis Fernando Ureña Corrales | DNS Interceptor, Apache, Rest API Java, deploy k8s + Helm, librería de algoritmos de reemplazo |
-| 2023       | Fabricio Herrera Rodriguez   | Zonal Cache                                                                                    |
+| 2023097390 | Fabricio Herrera Rodriguez   | Zonal Cache                                                                                    |
 | 2023223291 | Nicole Parra Valverde        | REST API Node.js, UI y su deploy en Vercel                                                     |
 
 ## 3. Arquitectura
