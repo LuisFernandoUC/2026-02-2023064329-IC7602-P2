@@ -24,6 +24,8 @@
 
 ## 1. Descripción general
 
+**Video de demostración:** [https://youtu.be/LXdTGWrzugA](https://youtu.be/LXdTGWrzugA)
+
 **Objetivo general:** implementar un proxy/caché de aplicación con geolocalización.
 
 El sistema intercepta peticiones DNS de dominios específicos, las redirige a una caché HTTP zonal según el país de origen de la persona usuaria, y sirve el contenido desde disco o desde el origen. Cada dominio, URL, política de reemplazo y mecanismo de autenticación se administra desde una interfaz web.
