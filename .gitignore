@@ -1,0 +1,15 @@
+.DS_Store
+node_modules/
+dist/
+build/
+out/
+*.class
+*.o
+node_modules/
+.env
+.env.*
+!.env.example
+.vercel/
+ui/dist/
+temp/
+2026-02-IC7602-P2.md - 2026-02-IC7602-P2.pdf

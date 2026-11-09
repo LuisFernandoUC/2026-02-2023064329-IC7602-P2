@@ -1,0 +1,125 @@
+{{- range .Values.zones }}
+{{- $zone := dict "root" $ "zone" .name }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "zonal-cache.zoneName" $zone }}
+  labels:
+    {{- include "zonal-cache.labels" $ | nindent 4 }}
+    zonal-cache/zone: {{ .name }}
+spec:
+  replicas: {{ $.Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+      zonal-cache/zone: {{ .name }}
+  template:
+    metadata:
+      labels:
+        {{- include "zonal-cache.labels" $ | nindent 8 }}
+        zonal-cache/zone: {{ .name }}
+      annotations:
+        checksum/config: {{ $.Values.config | toJson | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+      containers:
+        - name: zonal-cache
+          image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag }}"
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ $.Values.containerPorts.http }}
+            {{- if $.Values.tls.enabled }}
+            - name: https
+              containerPort: {{ $.Values.containerPorts.https }}
+            {{- end }}
+          env:
+            - name: ZC_ZONE
+              value: {{ .name | quote }}
+            - name: ZC_HTTP_PORT
+              value: {{ $.Values.containerPorts.http | quote }}
+            {{- if $.Values.tls.enabled }}
+            - name: ZC_HTTPS_PORT
+              value: {{ $.Values.containerPorts.https | quote }}
+            - name: ZC_TLS_CERT_FILE
+              value: /etc/zonal-cache/tls/tls.crt
+            - name: ZC_TLS_KEY_FILE
+              value: /etc/zonal-cache/tls/tls.key
+            {{- end }}
+            - name: ZC_CACHE_DIR
+              value: /var/cache/zonal-cache
+            {{- if $.Values.config.inline }}
+            - name: ZC_CONFIG_FILE
+              value: /etc/zonal-cache/config/config.json
+            {{- else }}
+            - name: ZC_CONFIG_URL
+              value: {{ required "config.url o config.inline es obligatorio" $.Values.config.url | quote }}
+            {{- end }}
+            - name: ZC_CONFIG_REFRESH_SECONDS
+              value: {{ $.Values.config.refreshSeconds | quote }}
+            - name: ZC_LOGIN_URL
+              value: {{ $.Values.loginUrl | quote }}
+            - name: ZC_ORIGIN_TIMEOUT_SECONDS
+              value: {{ $.Values.origin.timeoutSeconds | quote }}
+            - name: ZC_ORIGIN_VERIFY_TLS
+              value: {{ ternary "1" "0" $.Values.origin.verifyTls | quote }}
+            - name: ZC_MAX_BODY_BYTES
+              value: {{ $.Values.maxBodyBytes | int64 | quote }}
+            - name: ZC_LOG_LEVEL
+              value: {{ $.Values.logLevel | quote }}
+            - name: ZC_CONFIG_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "zonal-cache.secretName" $ }}
+                  key: config-token
+            - name: ZC_SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "zonal-cache.secretName" $ }}
+                  key: session-secret
+          readinessProbe:
+            httpGet:
+              path: /__zc/health
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /__zc/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          resources:
+            {{- toYaml $.Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: cache
+              mountPath: /var/cache/zonal-cache
+            {{- if $.Values.tls.enabled }}
+            - name: tls
+              mountPath: /etc/zonal-cache/tls
+              readOnly: true
+            {{- end }}
+            {{- if $.Values.config.inline }}
+            - name: config
+              mountPath: /etc/zonal-cache/config
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: cache
+          emptyDir:
+            sizeLimit: {{ $.Values.cache.sizeLimit }}
+        {{- if $.Values.tls.enabled }}
+        - name: tls
+          secret:
+            secretName: {{ include "zonal-cache.tlsSecretName" $ }}
+        {{- end }}
+        {{- if $.Values.config.inline }}
+        - name: config
+          configMap:
+            name: {{ include "zonal-cache.fullname" $ }}-config
+        {{- end }}
+{{- end }}

@@ -1,0 +1,11 @@
+Zonal Cache desplegada en las zonas:
+{{- range .Values.zones }}
+  - {{ .name }}: Service {{ printf "%s-%s" (include "zonal-cache.fullname" $) .name }}
+{{- end }}
+
+Ver las IPs (para configurar el DNS Interceptor):
+  kubectl get svc -l app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/name={{ include "zonal-cache.name" . }}
+
+Probar una zona desde la máquina local:
+  kubectl port-forward svc/{{ include "zonal-cache.fullname" . }}-{{ (index .Values.zones 0).name }} 8080:{{ .Values.service.httpPort }}
+  curl -i -H "Host: <dominio registrado>" http://localhost:8080/
