@@ -1,5 +1,3 @@
-# 2026-02-2023064329-IC7602-P2
-
 # Proyecto 2: Proxy/Caché de aplicación con geolocalización
 
 **Curso:** Redes (IC 7602) · Escuela de Ingeniería en Computación · Tecnológico de Costa Rica · II Semestre 2026
@@ -26,7 +24,6 @@
 
 ## 1. Descripción general
 
-
 **Objetivo general:** implementar un proxy/caché de aplicación con geolocalización.
 
 El sistema intercepta peticiones DNS de dominios específicos, las redirige a una caché HTTP zonal según el país de origen de la persona usuaria, y sirve el contenido desde disco o desde el origen. Cada dominio, URL, política de reemplazo y mecanismo de autenticación se administra desde una interfaz web.
@@ -43,14 +40,14 @@ El sistema intercepta peticiones DNS de dominios específicos, las redirige a un
 
 **Lenguajes y tecnologías elegidos** (el enunciado exige documentarlos; **no se permite Python**):
 
-| Componente         | Lenguaje / tecnología                  | Dónde se ejecuta  |
-| ------------------ | -------------------------------------- | ----------------- |
-| DNS Interceptor    | GNU C                                  | Kubernetes (Helm) |
-| Zonal Cache        | GNU C (OpenSSL, libcurl, cJSON)        | Kubernetes (Helm) |
-| Rest API           | Java 21 (servidor HTTP del JDK)        | Kubernetes (Helm) |
-| Apache Server      | Apache HTTP Server 2.4                 | Kubernetes (Helm) |
-| REST API (Node.js) | Node.js 24 + Express + Firebase/Firestore | Vercel         |
-| UI                 | React + Vite + Tailwind CSS            | Vercel            |
+| Componente         | Lenguaje / tecnología                     | Dónde se ejecuta  |
+| ------------------ | ----------------------------------------- | ----------------- |
+| DNS Interceptor    | GNU C                                     | Kubernetes (Helm) |
+| Zonal Cache        | GNU C (OpenSSL, libcurl, cJSON)           | Kubernetes (Helm) |
+| Rest API           | Java 21 (servidor HTTP del JDK)           | Kubernetes (Helm) |
+| Apache Server      | Apache HTTP Server 2.4                    | Kubernetes (Helm) |
+| REST API (Node.js) | Node.js 24 + Express + Firebase/Firestore | Vercel            |
+| UI                 | React + Vite + Tailwind CSS               | Vercel            |
 
 ## 2. Integrantes
 
@@ -64,80 +61,19 @@ El sistema intercepta peticiones DNS de dominios específicos, las redirige a un
 
 ### 3.1 Componentes
 
-```mermaid
-flowchart LR
-    U([Persona usuaria])
-    A([Administrador del sitio])
+![Arquitectura general](Docs/img/arquitectura.svg)
 
-    subgraph K8S["Kubernetes (Helm)"]
-        DNS["DNS Interceptor<br/>GNU C · UDP y TCP"]
-        subgraph CACHES["Zonal Cache · GNU C · HTTP y HTTPS"]
-            CA["america"]
-            CE["europa"]
-            CS["asia"]
-        end
-        AP["Apache Server"]
-        JA["Rest API Java"]
-    end
-
-    EXT["Sitios externos<br/>HTTP / HTTPS"]
-
-    subgraph VERCEL["Vercel (deploy desde GitHub)"]
-        UI["UI<br/>React + Vite + Tailwind"]
-        API["REST API Node.js"]
-    end
-
-    subgraph FB["Firebase"]
-        AUTH["Authentication"]
-        FS[("Firestore")]
-    end
-
-    U -- "1 · consulta DNS" --> DNS
-    DNS -. "IP de la caché de su zona" .-> U
-    U -- "2 · HTTP/HTTPS" --> CACHES
-    CACHES -- "MISS" --> AP & JA & EXT
-    CACHES -- "GET /api/cache/config<br/>cada 30 s" --> API
-    DNS -- "dominios verificados<br/>cada 30 s (opcional)" --> API
-    DNS -. "sondeo TCP<br/>respaldo de zonas" .-> CACHES
-    A --> UI
-    U -- "login de recursos" --> UI
-    UI --> AUTH
-    UI --> API
-    API --> FS
-```
-
-| Componente | Protocolo | Qué hace |
-| --- | --- | --- |
-| DNS Interceptor | UDP y TCP (puerto 53 del Service, NodePort 30053) | Responde los dominios administrados con la IP de la caché de la zona del cliente; reenvía los demás a 8.8.8.8 |
-| Zonal Cache | TCP: HTTP (80) y HTTPS (443) | Autentica, sirve desde disco o pide al origen; una instancia por zona |
-| Apache / Rest API Java | HTTP | Servidores de origen dentro del cluster |
-| REST API Node.js | HTTPS | Administra dominios, reglas, claves y usuarios en Firestore; entrega la configuración a cachés y DNS; emite sesiones |
-| UI | HTTPS | Panel de administración y formulario de login de recursos |
+| Componente             | Protocolo                                         | Qué hace                                                                                                             |
+| ---------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| DNS Interceptor        | UDP y TCP (puerto 53 del Service, NodePort 30053) | Responde los dominios administrados con la IP de la caché de la zona del cliente; reenvía los demás a 8.8.8.8        |
+| Zonal Cache            | TCP: HTTP (80) y HTTPS (443)                      | Autentica, sirve desde disco o pide al origen; una instancia por zona                                                |
+| Apache / Rest API Java | HTTP                                              | Servidores de origen dentro del cluster                                                                              |
+| REST API Node.js       | HTTPS                                             | Administra dominios, reglas, claves y usuarios en Firestore; entrega la configuración a cachés y DNS; emite sesiones |
+| UI                     | HTTPS                                             | Panel de administración y formulario de login de recursos                                                            |
 
 ### 3.2 Recorrido de una petición
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant C as Cliente (España)
-    participant D as DNS Interceptor
-    participant Z as Zonal Cache europa
-    participant O as Origen (Apache)
-
-    C->>D: A? apache.p2.local (UDP o TCP)
-    Note over D: IP o subred EDNS → país (IP to Country)<br/>ES → europa. Si europa no responde,<br/>zona por defecto u otra sana
-    D-->>C: A 10.x.x.x (IP de la caché europa)
-    C->>Z: GET / · Host: apache.p2.local
-    Note over Z: Dominio por Host, regla por ruta,<br/>autenticación según la regla
-    alt está en disco y no expiró
-        Z-->>C: 200 · X-Cache: HIT · Age
-    else no está o expiró
-        Z->>O: GET / (X-Forwarded-For, X-Zonal-Cache-Hop)
-        O-->>Z: 200
-        Note over Z: Guarda con el TTL y la política<br/>del tipo de archivo, dentro de los<br/>límites de la regla y del dominio
-        Z-->>C: 200 · X-Cache: MISS
-    end
-```
+![Recorrido de una petición](Docs/img/peticion.svg)
 
 1. La persona usuaria consulta un dominio administrado. El **DNS Interceptor** determina su país con la base IP to Country y responde con la IP de la **Zonal Cache** de su zona. Si esa caché no responde a su sondeo, usa la zona por defecto u otra sana. Los demás dominios se reenvían a un DNS externo.
 2. La Zonal Cache obtiene su configuración desde Firebase a través del API Node.js (o, en pruebas locales, desde un archivo JSON) y la recarga periódicamente.
@@ -146,90 +82,11 @@ sequenceDiagram
 
 ### 3.3 Administración y configuración
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor A as Administrador
-    participant UI as UI (Vercel)
-    participant API as API Node.js (Vercel)
-    participant FS as Firestore
-    participant N as DNS público
-    participant Z as Zonal Caches
-    participant D as DNS Interceptor
-
-    A->>UI: Registra dominio + servidor de origen
-    UI->>API: POST /api/domains (token de Firebase Auth)
-    API->>FS: domains/{id} · verified: false · token TXT
-    A->>N: Publica TXT _verificacion.<dominio>
-    A->>UI: Verificar
-    UI->>API: POST /api/domains/{id}/verify
-    API->>N: resolveTxt(_verificacion.<dominio>)
-    API->>FS: verified: true
-    A->>UI: Reglas, API keys y usuarios
-    UI->>API: /rules, /keys, /users
-    API->>FS: reglas · keyHash (SHA-256) · passwordHash (scrypt)
-    loop cada 30 s
-        Z->>API: GET /api/cache/config (Bearer CACHE_API_TOKEN)
-        API->>FS: dominios verificados y sus reglas
-        API-->>Z: JSON: dominios, reglas, hashes de API keys
-        D->>API: GET /api/cache/config (mismo token, opcional)
-        API-->>D: nombres de dominio verificados
-    end
-```
+![Administración y configuración](Docs/img/administracion.svg)
 
 ### 3.4 Login de un recurso con usuario y contraseña
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant N as Navegador
-    participant Z as Zonal Cache
-    participant UI as UI · acceso-recurso
-    participant API as API Node.js
-
-    N->>Z: GET /privado/doc.html (sin sesión)
-    Z-->>N: 302 UI?domain&path&callback=.../__zc/auth?next=...
-    N->>UI: Formulario de acceso
-    UI->>API: POST /api/cache/sessions {domain, path, usuario, contraseña, callback}
-    Note over API: Busca la regla más específica,<br/>verifica scrypt, firma JWT HS256<br/>{domain, sub, rule, exp}
-    API-->>UI: redirect = callback + token
-    UI-->>N: Abre el callback
-    N->>Z: GET /__zc/auth?next=...&token=JWT
-    Z-->>N: 302 next · Set-Cookie: zc_session (HttpOnly)
-    N->>Z: GET /privado/doc.html · Cookie zc_session
-    Note over Z: Verifica firma, exp, dominio y regla<br/>sin llamar al API
-    Z-->>N: 200
-    N->>Z: GET /__zc/logout
-    Z-->>N: Borra la cookie
-```
-
-### 3.5 Despliegue en Kubernetes
-
-```mermaid
-flowchart TB
-    subgraph NS["Namespace default · Kubernetes de Docker Desktop"]
-        direction TB
-        subgraph R1["helm: apache"]
-            AD["Deployment apache-apache"] --- AS["Service ClusterIP :80"]
-        end
-        subgraph R2["helm: rest-api-java"]
-            JD["Deployment rest-api-java-rest-api-java"] --- JS["Service ClusterIP :8080"]
-        end
-        subgraph R3["helm: zonal-cache (un Deployment y un Service por zona)"]
-            ZA["america"] --- ZAS["Service :80 / :443"]
-            ZE["europa"] --- ZES["Service :80 / :443"]
-            ZS["asia"] --- ZSS["Service :80 / :443"]
-            ZC[("ConfigMap · Secret tokens · Secret TLS · emptyDir caché")]
-        end
-        subgraph R4["helm: dns-interceptor (se instala de último)"]
-            DD["Deployment dns-interceptor"] --- DS["Service NodePort 30053 UDP+TCP"]
-            DC[("ConfigMap DI_ZONE_IPS calculado con lookup de los Services")]
-        end
-    end
-    H(["Equipo · dig @127.0.0.1 -p 30053"]) --> DS
-    ZAS & ZES & ZSS -- origen --> AS & JS
-    DC -. IPs .-> ZAS & ZES & ZSS
-```
+![Login de un recurso con usuario y contraseña](Docs/img/login-recurso.svg)
 
 Más diagramas: decisión dentro de la caché en [zonal-cache/README.md](zonal-cache/README.md#1-flujo-de-una-petición) e integración entre componentes en [Docs/Integracion.md](Docs/Integracion.md#4-flujos).
 
@@ -259,16 +116,16 @@ Más diagramas: decisión dentro de la caché en [zonal-cache/README.md](zonal-c
 
 Versiones con las que se probó el proyecto:
 
-| Herramienta                  | Versión probada                     | Para qué se usa                                   |
-| ---------------------------- | ----------------------------------- | ------------------------------------------------- |
-| Docker (Docker Desktop)      | 29.2                                | Construir imágenes y ejecutar Docker Compose      |
-| Kubernetes                   | 1.34 (Kubernetes de Docker Desktop) | Cluster local                                     |
-| kubectl                      | 1.35                                | Administrar el cluster                            |
-| Helm                         | 4.3                                 | Instalar los charts                               |
-| GCC / Make (opcional)        | 13.3 / 4.3                          | Compilar y probar los componentes en C sin Docker |
-| JDK                          | 21 (dentro de la imagen, sin Maven) | Compilar la Rest API Java                         |
-| Node.js                      | 24.x                                | API Node.js y UI                                  |
-| `dig`, `nslookup`, `curl`    | —                                   | Probar el sistema                                 |
+| Herramienta               | Versión probada                     | Para qué se usa                                   |
+| ------------------------- | ----------------------------------- | ------------------------------------------------- |
+| Docker (Docker Desktop)   | 29.2                                | Construir imágenes y ejecutar Docker Compose      |
+| Kubernetes                | 1.34 (Kubernetes de Docker Desktop) | Cluster local                                     |
+| kubectl                   | 1.35                                | Administrar el cluster                            |
+| Helm                      | 4.3                                 | Instalar los charts                               |
+| GCC / Make (opcional)     | 13.3 / 4.3                          | Compilar y probar los componentes en C sin Docker |
+| JDK                       | 21 (dentro de la imagen, sin Maven) | Compilar la Rest API Java                         |
+| Node.js                   | 24.x                                | API Node.js y UI                                  |
+| `dig`, `nslookup`, `curl` | —                                   | Probar el sistema                                 |
 
 No hace falta instalar GCC ni el JDK: los Dockerfiles compilan cada componente.
 
@@ -285,7 +142,7 @@ cd 2026-02-2023064329-IC7602-P2
 
 ### 6.2 Preparar Kubernetes y Helm
 
-1. En Docker Desktop: **Settings → Kubernetes → Enable Kubernetes** (modo *kubeadm* si se ofrece) → **Apply & Restart**. Con este modo el cluster usa directamente las imágenes construidas con `docker build`.
+1. En Docker Desktop: **Settings → Kubernetes → Enable Kubernetes** (modo _kubeadm_ si se ofrece) → **Apply & Restart**. Con este modo el cluster usa directamente las imágenes construidas con `docker build`.
 2. Instalar `kubectl` y `helm`. Por ejemplo, en Ubuntu:
 
    ```bash
@@ -369,15 +226,6 @@ deploy/test-k8s.sh --unit --failover   # + respaldo de zonas: apaga europa y la 
 deploy/test-k8s.sh --keep              # conserva el pod de pruebas para seguir probando a mano
 ```
 
-```mermaid
-flowchart LR
-    S["deploy/test-k8s.sh"] --> R["0 · Requisitos<br/>Deployments listos, IPs"]
-    R --> P["Pod p2-tester<br/>curl · dig · openssl"]
-    P --> T1["1 · Orígenes"] --> T2["2 · DNS<br/>zonas, comodín, TCP, reenvío"] --> T3["3 · Caché por zona<br/>MISS → HIT"]
-    T3 --> T4["4 · HTTPS"] --> T5["5 · Rest API Java<br/>x-api-key, CRUD"] --> T6["6 · Errores 404 / 508"]
-    T6 --> T7["7 · --unit"] --> T8["8 · --failover"] --> F["Resumen y código de salida"]
-```
-
 Termina con código `0` si todas las pruebas pasan. Salida resumida:
 
 ```text
@@ -404,34 +252,15 @@ API_URL=https://zonal-cache-api.vercel.app UI_URL=https://zonal-cache-ui.vercel.
 
 Comprueba disponibilidad, CORS, acceso a Firestore y rechazo de solicitudes sin autorización. Las pruebas con DNS y caché se hacen con el clúster desplegado.
 
-Pruebas manuales equivalentes:
-
-```bash
-# DNS desde el equipo (NodePort 30053/UDP); +subnet simula el país del cliente
-dig +short @127.0.0.1 -p 30053 apache.p2.local +subnet=80.58.61.0/24   # IP de la caché europa
-nslookup -port=30053 apache.p2.local 127.0.0.1                         # zona por defecto (america)
-
-# DNS sobre TCP: Docker Desktop no reenvía el NodePort TCP al equipo; usar port-forward
-kubectl port-forward svc/dns-interceptor-dns-interceptor 5354:53 &
-dig +tcp +short @127.0.0.1 -p 5354 apache.p2.local +subnet=1.0.16.0/24 # IP de la caché asia
-
-# HTTP desde un pod del cluster
-kubectl run cliente --rm -it --image=curlimages/curl --restart=Never -- sh
-IP=<CLUSTER-IP de zonal-cache-zonal-cache-europa>
-curl -si --resolve apache.p2.local:80:$IP http://apache.p2.local/ | grep -i x-cache      # MISS, luego HIT
-curl -sik --resolve apache.p2.local:443:$IP https://apache.p2.local/ | grep -i x-cache   # SSL termination
-curl -si -H 'x-api-key: clave-valida' --resolve api.cdn.p2.local:80:$IP http://api.cdn.p2.local/api/items
-```
-
-`clave-valida` es la API key de prueba: `values-local.yaml` guarda su SHA-256 (`echo -n clave-valida | sha256sum`).
+Para probar a mano (`dig`, `curl` desde un pod del cluster, HTTPS y `x-api-key`), ver [Docs/Pruebas-Manuales.md](Docs/Pruebas-Manuales.md). La API key de prueba es `clave-valida`: `values-local.yaml` guarda su SHA-256 (`echo -n clave-valida | sha256sum`).
 
 ### 6.7 Entornos con Docker Compose (sin Kubernetes)
 
-| Entorno                          | Comando                                                         | Qué permite probar                                                               |
-| -------------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Caché + Apache + sitios externos | `docker compose -f zonal-cache/docker-compose.yml up --build`   | HIT/MISS, HTTPS, API key, redirección al login, sitios externos HTTP y HTTPS     |
-| DNS Interceptor                  | `cd dns-interceptor && docker compose up --build`               | Geolocalización con `dig @127.0.0.1 -p 15353 ... +subnet=...`                    |
-| Apache + Rest API Java           | `docker compose -f deploy/docker-compose.yml up --build`        | Los orígenes directos (puertos 8081 y 8080)                                      |
+| Entorno                          | Comando                                                       | Qué permite probar                                                           |
+| -------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Caché + Apache + sitios externos | `docker compose -f zonal-cache/docker-compose.yml up --build` | HIT/MISS, HTTPS, API key, redirección al login, sitios externos HTTP y HTTPS |
+| DNS Interceptor                  | `cd dns-interceptor && docker compose up --build`             | Geolocalización con `dig @127.0.0.1 -p 15353 ... +subnet=...`                |
+| Apache + Rest API Java           | `docker compose -f deploy/docker-compose.yml up --build`      | Los orígenes directos (puertos 8081 y 8080)                                  |
 
 Los comandos de prueba de cada entorno están en [zonal-cache/README.md](zonal-cache/README.md#entorno-local-completo-con-docker-compose), [dns-interceptor/README.md](dns-interceptor/README.md#con-docker-compose-desarrollo) y [rest-api-java/README.md](rest-api-java/README.md#pruebas).
 
@@ -448,28 +277,28 @@ Para borrar el cluster: Docker Desktop → Settings → Kubernetes → **Reset K
 
 Toda configuración se inyecta por variables de entorno. En Kubernetes las definen los charts a partir de sus `values.yaml`.
 
-| Componente      | Variable                                  | Descripción                                                    | Ejemplo / valor por defecto              |
-| --------------- | ----------------------------------------- | -------------------------------------------------------------- | ---------------------------------------- |
-| DNS Interceptor | `DI_ZONE_IPS`                             | IP de cada caché zonal                                         | `america=10.0.0.1,europa=...` (obligatoria; el chart la calcula) |
-| DNS Interceptor | `DI_DOMAINS`                              | Dominios interceptados, admite `*.dominio`                     | `apache.p2.local,*.cdn.p2.local`         |
-| DNS Interceptor | `DI_DEFAULT_ZONE`                         | Zona para países desconocidos o IP privadas                    | `america`                                |
-| DNS Interceptor | `DI_UPSTREAM_DNS`, `DI_UPSTREAM_PORT`     | DNS externo para los demás dominios                            | `8.8.8.8`, `53`                          |
-| DNS Interceptor | `DI_TCP`                                  | `1` atiende también DNS sobre TCP                              | `1`                                      |
-| DNS Interceptor | `DI_DOMAINS_URL`, `DI_DOMAINS_TOKEN`      | Endpoint y token para leer los dominios verificados del API (opcional) | `.../api/cache/config`, igual a `CACHE_API_TOKEN` |
-| DNS Interceptor | `DI_HEALTH_PORT`, `DI_HEALTH_INTERVAL_SECONDS` | Sondeo TCP de las cachés para el respaldo de zonas; `0` lo desactiva | `80`, `5`                    |
-| DNS Interceptor | `DI_PORT`, `DI_TTL`, ...                  | Ver la tabla completa en [dns-interceptor/README.md](dns-interceptor/README.md#variables-de-entorno) | `5353`, `30` |
-| Zonal Cache     | `ZC_*`                                    | Ver la tabla completa en [zonal-cache/README.md](zonal-cache/README.md#3-variables-de-entorno) | —           |
-| Rest API Java   | `PORT`                                    | Puerto en el que escucha                                       | `8080`                                   |
-| API Node.js     | `HOST`, `PORT`                            | Dirección y puerto del servidor local                          | `127.0.0.1`, `3000`                      |
-| API Node.js     | `UI_ORIGIN`                               | Origen permitido por CORS                                      | `http://127.0.0.1:5173`                  |
-| API Node.js     | `FIREBASE_PROJECT_ID`                     | ID del proyecto de Firebase                                    | `project_id` de la cuenta de servicio    |
-| API Node.js     | `FIREBASE_CLIENT_EMAIL`                   | Correo de la cuenta de servicio                                | `client_email`                           |
-| API Node.js     | `FIREBASE_PRIVATE_KEY`                    | Clave privada de la cuenta de servicio                         | `private_key`, entre comillas dobles     |
-| API Node.js     | `CACHE_API_TOKEN`                         | Token con el que se autentican las cachés; igual a `ZC_CONFIG_TOKEN` | `openssl rand -hex 32`             |
-| API Node.js     | `CACHE_SESSION_SECRET`                    | Secreto de al menos 32 bytes para firmar sesiones; igual a `ZC_SESSION_SECRET` | `openssl rand -hex 32`        |
-| API Node.js     | `CACHE_SESSION_SECONDS`                   | Duración de la sesión del recurso, en segundos                  | `3600`                                  |
-| UI              | `VITE_API_URL`                            | URL del API Node.js                                            | `http://127.0.0.1:3000`                  |
-| UI              | `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID` | Configuración web de Firebase Authentication | Consola de Firebase |
+| Componente      | Variable                                                                                                 | Descripción                                                                                          | Ejemplo / valor por defecto                                      |
+| --------------- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| DNS Interceptor | `DI_ZONE_IPS`                                                                                            | IP de cada caché zonal                                                                               | `america=10.0.0.1,europa=...` (obligatoria; el chart la calcula) |
+| DNS Interceptor | `DI_DOMAINS`                                                                                             | Dominios interceptados, admite `*.dominio`                                                           | `apache.p2.local,*.cdn.p2.local`                                 |
+| DNS Interceptor | `DI_DEFAULT_ZONE`                                                                                        | Zona para países desconocidos o IP privadas                                                          | `america`                                                        |
+| DNS Interceptor | `DI_UPSTREAM_DNS`, `DI_UPSTREAM_PORT`                                                                    | DNS externo para los demás dominios                                                                  | `8.8.8.8`, `53`                                                  |
+| DNS Interceptor | `DI_TCP`                                                                                                 | `1` atiende también DNS sobre TCP                                                                    | `1`                                                              |
+| DNS Interceptor | `DI_DOMAINS_URL`, `DI_DOMAINS_TOKEN`                                                                     | Endpoint y token para leer los dominios verificados del API (opcional)                               | `.../api/cache/config`, igual a `CACHE_API_TOKEN`                |
+| DNS Interceptor | `DI_HEALTH_PORT`, `DI_HEALTH_INTERVAL_SECONDS`                                                           | Sondeo TCP de las cachés para el respaldo de zonas; `0` lo desactiva                                 | `80`, `5`                                                        |
+| DNS Interceptor | `DI_PORT`, `DI_TTL`, ...                                                                                 | Ver la tabla completa en [dns-interceptor/README.md](dns-interceptor/README.md#variables-de-entorno) | `5353`, `30`                                                     |
+| Zonal Cache     | `ZC_*`                                                                                                   | Ver la tabla completa en [zonal-cache/README.md](zonal-cache/README.md#3-variables-de-entorno)       | —                                                                |
+| Rest API Java   | `PORT`                                                                                                   | Puerto en el que escucha                                                                             | `8080`                                                           |
+| API Node.js     | `HOST`, `PORT`                                                                                           | Dirección y puerto del servidor local                                                                | `127.0.0.1`, `3000`                                              |
+| API Node.js     | `UI_ORIGIN`                                                                                              | Origen permitido por CORS                                                                            | `http://127.0.0.1:5173`                                          |
+| API Node.js     | `FIREBASE_PROJECT_ID`                                                                                    | ID del proyecto de Firebase                                                                          | `project_id` de la cuenta de servicio                            |
+| API Node.js     | `FIREBASE_CLIENT_EMAIL`                                                                                  | Correo de la cuenta de servicio                                                                      | `client_email`                                                   |
+| API Node.js     | `FIREBASE_PRIVATE_KEY`                                                                                   | Clave privada de la cuenta de servicio                                                               | `private_key`, entre comillas dobles                             |
+| API Node.js     | `CACHE_API_TOKEN`                                                                                        | Token con el que se autentican las cachés; igual a `ZC_CONFIG_TOKEN`                                 | `openssl rand -hex 32`                                           |
+| API Node.js     | `CACHE_SESSION_SECRET`                                                                                   | Secreto de al menos 32 bytes para firmar sesiones; igual a `ZC_SESSION_SECRET`                       | `openssl rand -hex 32`                                           |
+| API Node.js     | `CACHE_SESSION_SECONDS`                                                                                  | Duración de la sesión del recurso, en segundos                                                       | `3600`                                                           |
+| UI              | `VITE_API_URL`                                                                                           | URL del API Node.js                                                                                  | `http://127.0.0.1:3000`                                          |
+| UI              | `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID` | Configuración web de Firebase Authentication                                                         | Consola de Firebase                                              |
 
 ## 8. Documentación por componente
 
@@ -520,13 +349,7 @@ Imagen `httpd:2.4-alpine` que sirve [apache/html/index.html](apache/html/index.h
 
 ### 8.5 REST API Node.js
 
-La API incluye `GET /api/health` y estos grupos de rutas:
-
-- **Dominios** (`/api/domains`): listado, registro, verificación TXT y eliminación con sus subcolecciones. Verifican la sesión con Firebase Authentication y usan el UID de la cuenta como propietario. Al registrar un dominio se pide el servidor de origen (`originUrl`), que debe ser una URL HTTP o HTTPS sin ruta.
-- **Reglas de URL** (`/api/domains/:domainId/rules`): crear, consultar, editar y eliminar, con permisos por propietario. Cada regla tiene ruta, tamaño máximo (no mayor que el del dominio), modo de autenticación (`none` para rutas públicas, `api-key` o `password`) y, por tipo de archivo, TTL y política de reemplazo. El tipo `*` aplica a las extensiones sin fila propia.
-- **Acceso por regla** (`/api/domains/:domainId/rules/:ruleId/keys` y `/users`): crear y eliminar API keys; crear, listar, editar y eliminar usuarios de recursos. Las contraseñas y las claves se guardan como hashes.
-- **Configuración para las cachés** (`GET /api/cache/config`): entrega a las cachés autenticadas los dominios verificados, sus reglas y los hashes de las API keys. Requiere `CACHE_API_TOKEN`, que debe coincidir con `ZC_CONFIG_TOKEN` en la caché.
-- **Login de recursos** (`POST /api/cache/sessions`): valida el usuario de la regla y devuelve un JWT limitado a ese dominio y regla. La caché lo recibe en `/__zc/auth`, guarda su cookie y maneja el cierre en `/__zc/logout`.
+Rutas principales: dominios (`/api/domains`, con verificación TXT), reglas de URL, API keys y usuarios por regla, configuración para las cachés (`GET /api/cache/config`) y login de recursos (`POST /api/cache/sessions`). Detalle en [Docs/Contratos/API-Node.md](Docs/Contratos/API-Node.md).
 
 La conexión a Firestore se configura con variables de entorno. El comando `npm run check:firestore`, desde `api-node/`, permite comprobar el acceso.
 
@@ -538,13 +361,13 @@ La UI usa React, Vite y Tailwind CSS. El registro, inicio y cierre de sesión es
 
 ### 8.7 Automatización
 
-| Herramienta        | Archivos                                                                                       | Uso                                                                  |
-| ------------------ | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| Dockerfile         | `dns-interceptor/`, `zonal-cache/`, `rest-api-java/`, `apache/`                                | Compilación en varias etapas; imágenes finales sin compiladores y con usuario sin privilegios |
-| Docker Compose     | `zonal-cache/docker-compose.yml`, `dns-interceptor/docker-compose.yml`, `deploy/docker-compose.yml` | Entornos de desarrollo sin Kubernetes                           |
-| Helm Charts        | `deploy/helm/{apache,rest-api-java,zonal-cache,dns-interceptor}`                               | Despliegue en Kubernetes; la caché crea un Deployment y un Service por zona |
-| Script de pruebas  | `deploy/test-k8s.sh`                                                                           | Pruebas de integración automáticas sobre el cluster                  |
-| GitHub Actions     | `.github/workflows/zonal-cache.yml`                                                            | Pruebas unitarias, imagen de pruebas, `helm lint` y `helm template`  |
+| Herramienta       | Archivos                                                                                            | Uso                                                                                           |
+| ----------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Dockerfile        | `dns-interceptor/`, `zonal-cache/`, `rest-api-java/`, `apache/`                                     | Compilación en varias etapas; imágenes finales sin compiladores y con usuario sin privilegios |
+| Docker Compose    | `zonal-cache/docker-compose.yml`, `dns-interceptor/docker-compose.yml`, `deploy/docker-compose.yml` | Entornos de desarrollo sin Kubernetes                                                         |
+| Helm Charts       | `deploy/helm/{apache,rest-api-java,zonal-cache,dns-interceptor}`                                    | Despliegue en Kubernetes; la caché crea un Deployment y un Service por zona                   |
+| Script de pruebas | `deploy/test-k8s.sh`                                                                                | Pruebas de integración automáticas sobre el cluster                                           |
+| GitHub Actions    | `.github/workflows/zonal-cache.yml`                                                                 | Pruebas unitarias, imagen de pruebas, `helm lint` y `helm template`                           |
 
 No se usó Terraform porque todo se ejecuta en Kubernetes local.
 
@@ -556,26 +379,26 @@ Resultados del 08/11/2026 con Kubernetes de Docker Desktop, después de reinstal
 
 `deploy/test-k8s.sh --unit --failover` → **50 correctas, 0 fallidas**.
 
-| #   | Prueba                                              | Pasos para reproducir | Resultado esperado | Resultado obtenido |
-| --- | --------------------------------------------------- | --------------------- | ------------------ | ------------------ |
-| 1   | Rest API (Java) a través de la caché                | `deploy/test-k8s.sh`, sección 5 | GET `200` (MISS y luego HIT), POST `201`, PUT `200`, DELETE `204`, GET del item borrado `404`. Los métodos que modifican dan `X-Cache: BYPASS` | Correcto |
-| 2   | Apache con HTML simple                              | `deploy/test-k8s.sh`, sección 3 | `200`, `X-Cache: MISS` y luego `HIT` con encabezado `Age`, en cada zona | Correcto en las tres zonas |
-| 3   | Sitio externo con **HTTP**                          | `docker compose -f zonal-cache/docker-compose.yml up --build`; `curl -i -H "Host: example.com" http://localhost:8080/` dos veces | `200`, MISS y luego HIT | Correcto |
-| 4   | Sitio externo con **HTTPS**                         | Mismo entorno; `curl -i -H "Host: www.wikipedia.org" http://localhost:8080/` dos veces | `200`, MISS y luego HIT (la caché habla HTTPS con el origen) | Correcto |
-| 5   | Resolución DNS con geolocalización                  | `deploy/test-k8s.sh`, sección 2, o `dig @127.0.0.1 -p 30053 apache.p2.local +subnet=<subred>` | EE. UU. → america, España → europa, Japón → asia; comodín `*.cdn.p2.local`; `nslookup` sin subred → zona por defecto; google.com se reenvía | Correcto, también desde el equipo por el NodePort 30053 |
-| 6   | Autenticación con `x-api-key`                       | `deploy/test-k8s.sh`, sección 5 | Sin clave `401`, clave incorrecta `401`, `clave-valida` `200` | Correcto |
-| 7   | Autenticación con usuario y contraseña (sesión)     | Entorno Compose de la caché; `curl -i -H "Host: apache.local" http://localhost:8080/privado/secreto.html` | `302` al login de la UI con `domain`, `path` y `callback` | Redirección probada. `POST /api/cache/sessions` y el formulario ya están conectados; falta probarlos con la caché desplegada y el secreto compartido. Las pruebas de API comprueban la firma y alcance del JWT; las de caché (`proxy`, `auth`) comprueban su verificación y la cookie |
-| 8   | Algoritmos de reemplazo (LRU, LFU, FIFO, MRU, Random) y política por tipo de archivo | `docker build --target test zonal-cache` o `deploy/test-k8s.sh --unit` | Cada política expulsa la víctima esperada; cada tipo usa su política | `102 pruebas, 0 fallidas` |
-| 9   | Límite de tamaño por dominio y por URL              | Igual que la #8 (suite `cache`) | No se superan los límites; los tipos comparten el límite de la regla; un objeto más grande que el límite no se guarda | Correcto |
-| 10  | SSL termination                                     | `deploy/test-k8s.sh`, sección 4 | HTTPS `200` con MISS y luego HIT; certificado `CN=zonal-cache` | Correcto |
-| 11  | Respuestas propias de la caché                      | `deploy/test-k8s.sh`, sección 6 | Dominio no administrado `404`; petición repetida entre cachés `508` | Correcto |
-| 12  | Pruebas unitarias del DNS Interceptor               | `cd dns-interceptor && make test` | Sin fallas | `185 verificaciones, 0 fallidas` |
-| 13  | DNS sobre TCP                                       | `deploy/test-k8s.sh`, sección 2; desde el equipo con `kubectl port-forward` (sección 6.6) | Japón por TCP → IP de la caché asia | Correcto dentro del cluster. Docker Desktop no reenvía el NodePort TCP al equipo |
-| 14  | Respaldo de zonas                                   | `deploy/test-k8s.sh --failover` | Con europa apagada, un cliente de España recibe otra zona sana; al encenderla vuelve a europa | Correcto: recibió america (zona por defecto) y luego europa |
-| 15  | Pruebas unitarias del API Node.js                   | `cd api-node && npm test` (Node.js 24) | Sin fallas | `62 pruebas, 0 fallidas` (incluye reglas públicas y tipo `*`) |
-| 16  | Compilación de la UI                                | `cd ui && npm run build` (Node.js 24) | Compila sin errores | Correcto |
-| 17  | Conexión API Node.js con Firestore                  | Desde `api-node/`, configurar `.env` y ejecutar `npm run check:firestore` | `Conexión con Firestore verificada.` | Correcto; consulta de lectura realizada |
-| 18  | Charts de Helm                                      | `helm lint deploy/helm/<chart>` | Sin errores | Los cuatro charts pasan |
+| #   | Prueba                                                                               | Pasos para reproducir                                                                                                            | Resultado esperado                                                                                                                             | Resultado obtenido                                                                                                                                                                                                                                                                    |
+| --- | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Rest API (Java) a través de la caché                                                 | `deploy/test-k8s.sh`, sección 5                                                                                                  | GET `200` (MISS y luego HIT), POST `201`, PUT `200`, DELETE `204`, GET del item borrado `404`. Los métodos que modifican dan `X-Cache: BYPASS` | Correcto                                                                                                                                                                                                                                                                              |
+| 2   | Apache con HTML simple                                                               | `deploy/test-k8s.sh`, sección 3                                                                                                  | `200`, `X-Cache: MISS` y luego `HIT` con encabezado `Age`, en cada zona                                                                        | Correcto en las tres zonas                                                                                                                                                                                                                                                            |
+| 3   | Sitio externo con **HTTP**                                                           | `docker compose -f zonal-cache/docker-compose.yml up --build`; `curl -i -H "Host: example.com" http://localhost:8080/` dos veces | `200`, MISS y luego HIT                                                                                                                        | Correcto                                                                                                                                                                                                                                                                              |
+| 4   | Sitio externo con **HTTPS**                                                          | Mismo entorno; `curl -i -H "Host: www.wikipedia.org" http://localhost:8080/` dos veces                                           | `200`, MISS y luego HIT (la caché habla HTTPS con el origen)                                                                                   | Correcto                                                                                                                                                                                                                                                                              |
+| 5   | Resolución DNS con geolocalización                                                   | `deploy/test-k8s.sh`, sección 2, o `dig @127.0.0.1 -p 30053 apache.p2.local +subnet=<subred>`                                    | EE. UU. → america, España → europa, Japón → asia; comodín `*.cdn.p2.local`; `nslookup` sin subred → zona por defecto; google.com se reenvía    | Correcto, también desde el equipo por el NodePort 30053                                                                                                                                                                                                                               |
+| 6   | Autenticación con `x-api-key`                                                        | `deploy/test-k8s.sh`, sección 5                                                                                                  | Sin clave `401`, clave incorrecta `401`, `clave-valida` `200`                                                                                  | Correcto                                                                                                                                                                                                                                                                              |
+| 7   | Autenticación con usuario y contraseña (sesión)                                      | Entorno Compose de la caché; `curl -i -H "Host: apache.local" http://localhost:8080/privado/secreto.html`                        | `302` al login de la UI con `domain`, `path` y `callback`                                                                                      | Redirección probada. `POST /api/cache/sessions` y el formulario ya están conectados; falta probarlos con la caché desplegada y el secreto compartido. Las pruebas de API comprueban la firma y alcance del JWT; las de caché (`proxy`, `auth`) comprueban su verificación y la cookie |
+| 8   | Algoritmos de reemplazo (LRU, LFU, FIFO, MRU, Random) y política por tipo de archivo | `docker build --target test zonal-cache` o `deploy/test-k8s.sh --unit`                                                           | Cada política expulsa la víctima esperada; cada tipo usa su política                                                                           | `102 pruebas, 0 fallidas`                                                                                                                                                                                                                                                             |
+| 9   | Límite de tamaño por dominio y por URL                                               | Igual que la #8 (suite `cache`)                                                                                                  | No se superan los límites; los tipos comparten el límite de la regla; un objeto más grande que el límite no se guarda                          | Correcto                                                                                                                                                                                                                                                                              |
+| 10  | SSL termination                                                                      | `deploy/test-k8s.sh`, sección 4                                                                                                  | HTTPS `200` con MISS y luego HIT; certificado `CN=zonal-cache`                                                                                 | Correcto                                                                                                                                                                                                                                                                              |
+| 11  | Respuestas propias de la caché                                                       | `deploy/test-k8s.sh`, sección 6                                                                                                  | Dominio no administrado `404`; petición repetida entre cachés `508`                                                                            | Correcto                                                                                                                                                                                                                                                                              |
+| 12  | Pruebas unitarias del DNS Interceptor                                                | `cd dns-interceptor && make test`                                                                                                | Sin fallas                                                                                                                                     | `185 verificaciones, 0 fallidas`                                                                                                                                                                                                                                                      |
+| 13  | DNS sobre TCP                                                                        | `deploy/test-k8s.sh`, sección 2; desde el equipo con `kubectl port-forward` (sección 6.6)                                        | Japón por TCP → IP de la caché asia                                                                                                            | Correcto dentro del cluster. Docker Desktop no reenvía el NodePort TCP al equipo                                                                                                                                                                                                      |
+| 14  | Respaldo de zonas                                                                    | `deploy/test-k8s.sh --failover`                                                                                                  | Con europa apagada, un cliente de España recibe otra zona sana; al encenderla vuelve a europa                                                  | Correcto: recibió america (zona por defecto) y luego europa                                                                                                                                                                                                                           |
+| 15  | Pruebas unitarias del API Node.js                                                    | `cd api-node && npm test` (Node.js 24)                                                                                           | Sin fallas                                                                                                                                     | `62 pruebas, 0 fallidas` (incluye reglas públicas y tipo `*`)                                                                                                                                                                                                                         |
+| 16  | Compilación de la UI                                                                 | `cd ui && npm run build` (Node.js 24)                                                                                            | Compila sin errores                                                                                                                            | Correcto                                                                                                                                                                                                                                                                              |
+| 17  | Conexión API Node.js con Firestore                                                   | Desde `api-node/`, configurar `.env` y ejecutar `npm run check:firestore`                                                        | `Conexión con Firestore verificada.`                                                                                                           | Correcto; consulta de lectura realizada                                                                                                                                                                                                                                               |
+| 18  | Charts de Helm                                                                       | `helm lint deploy/helm/<chart>`                                                                                                  | Sin errores                                                                                                                                    | Los cuatro charts pasan                                                                                                                                                                                                                                                               |
 
 **Comportamiento esperado, documentado como limitación:** después de un POST a `/api/items`, la lista cacheada sigue sin el item nuevo hasta que vence su TTL (10 s en `values-local.yaml`). El script lo muestra como aviso.
 
@@ -585,42 +408,28 @@ Recomendación del enunciado: usar `nslookup` para el DNS Interceptor y Postman/
 
 Comprobaciones realizadas el 08/11/2026 con la API y la UI publicadas y Firestore real. Para repetir las operaciones del panel, iniciar sesión y usar un dominio temporal sin verificar, como `pruebas-panel.local`, con origen `http://apache-apache` y límite de 1 MB.
 
-| Prueba | Pasos para reproducir | Resultado obtenido |
-| --- | --- | --- |
-| Disponibilidad y permisos | Desde `api-node/`, ejecutar el comando `check:deployment` de la sección 6.6 con las URLs publicadas y el token local | API y UI responden `200`; CORS permite la UI; dominios y configuración sin autorización responden `401`; la consulta autenticada lee Firestore con `Cache-Control: no-store` |
-| Verificación TXT | En un dominio con DNS editable, publicar el TXT que muestra **Verificar dominio**, verificar y recargar | `proxycache.duckdns.org` sigue verificado y aparece con su regla en `/api/cache/config` |
-| Reglas de URL | Crear `/prueba-panel/*` con 0.25 MB, `html`, TTL 60, LRU y acceso por API key. Editar a 0.5 MB, TTL 90 y FIFO; recargar | La creación y la edición conservan los datos. La edición mantiene el ID de la regla |
-| API keys | Crear una clave, ocultarla y recargar. Abrir su eliminación y cancelar; luego confirmar la eliminación y recargar | El valor se muestra solo al crearla. Cancelar conserva la clave; al eliminarla desaparece también después de recargar |
-| Usuarios de recursos | Cambiar y guardar el acceso de la regla a **Usuario y contraseña**. Crear un usuario temporal, editar su nombre con contraseña vacía y después guardar una nueva contraseña desde el formulario. Eliminarlo y recargar | El nombre se guarda y se puede editar. El formulario confirma el guardado de la nueva contraseña. El usuario eliminado no reaparece. El login con esa contraseña no se comprobó en esta prueba |
-| Eliminación y limpieza | Eliminar la regla temporal y después el dominio; recargar ambas listas | La regla y el dominio desaparecen. Se conservaron el dominio verificado, su regla `/*` y el usuario `prueba3` |
-| Dominios pendientes | Consultar `/api/cache/config` con el token de la caché mientras existe el dominio temporal sin verificar | El dominio temporal queda fuera de la configuración |
+| Prueba                    | Pasos para reproducir                                                                                                                                                                                                  | Resultado obtenido                                                                                                                                                                             |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Disponibilidad y permisos | Desde `api-node/`, ejecutar el comando `check:deployment` de la sección 6.6 con las URLs publicadas y el token local                                                                                                   | API y UI responden `200`; CORS permite la UI; dominios y configuración sin autorización responden `401`; la consulta autenticada lee Firestore con `Cache-Control: no-store`                   |
+| Verificación TXT          | En un dominio con DNS editable, publicar el TXT que muestra **Verificar dominio**, verificar y recargar                                                                                                                | `proxycache.duckdns.org` sigue verificado y aparece con su regla en `/api/cache/config`                                                                                                        |
+| Reglas de URL             | Crear `/prueba-panel/*` con 0.25 MB, `html`, TTL 60, LRU y acceso por API key. Editar a 0.5 MB, TTL 90 y FIFO; recargar                                                                                                | La creación y la edición conservan los datos. La edición mantiene el ID de la regla                                                                                                            |
+| API keys                  | Crear una clave, ocultarla y recargar. Abrir su eliminación y cancelar; luego confirmar la eliminación y recargar                                                                                                      | El valor se muestra solo al crearla. Cancelar conserva la clave; al eliminarla desaparece también después de recargar                                                                          |
+| Usuarios de recursos      | Cambiar y guardar el acceso de la regla a **Usuario y contraseña**. Crear un usuario temporal, editar su nombre con contraseña vacía y después guardar una nueva contraseña desde el formulario. Eliminarlo y recargar | El nombre se guarda y se puede editar. El formulario confirma el guardado de la nueva contraseña. El usuario eliminado no reaparece. El login con esa contraseña no se comprobó en esta prueba |
+| Eliminación y limpieza    | Eliminar la regla temporal y después el dominio; recargar ambas listas                                                                                                                                                 | La regla y el dominio desaparecen. Se conservaron el dominio verificado, su regla `/*` y el usuario `prueba3`                                                                                  |
+| Dominios pendientes       | Consultar `/api/cache/config` con el token de la caché mientras existe el dominio temporal sin verificar                                                                                                               | El dominio temporal queda fuera de la configuración                                                                                                                                            |
 
 También se ejecutó la caché local con la API real de Vercel: cargó la configuración, respondió a su comprobación de salud y redirigió al login público. Un token inválido en el callback respondió `401` y `/__zc/logout` respondió `200` borrando la cookie. No se sirvieron archivos de Apache en esa ejecución.
 
-Las pruebas actuales de la caché dieron **102 correctas y 0 fallidas**, incluidas las políticas distintas por tipo de archivo y los límites compartidos, y ese cambio ya está desplegado y probado en el clúster (sección 9.1). Falta probar el login válido, Apache con MISS/HIT y el acceso después de cerrar sesión con la caché del clúster conectada a la API real y el secreto compartido. Pasos:
-
-```bash
-helm upgrade zonal-cache deploy/helm/zonal-cache \
-  --set config.url=https://zonal-cache-api.vercel.app/api/cache/config \
-  --set secrets.configToken=$CACHE_API_TOKEN \
-  --set secrets.sessionSecret=$CACHE_SESSION_SECRET \
-  --set loginUrl='https://zonal-cache-ui.vercel.app/#/acceso-recurso'
-kubectl rollout restart deploy -l app.kubernetes.io/instance=zonal-cache
-
-kubectl run cliente --rm -it --image=curlimages/curl --restart=Never -- sh
-IP=<CLUSTER-IP de una caché>
-curl -si --resolve proxycache.duckdns.org:80:$IP http://proxycache.duckdns.org/   # 302 al login
-# Abrir el Location en el navegador, iniciar sesión con prueba3 y repetir con la cookie zc_session
-```
+Las pruebas actuales de la caché dieron **102 correctas y 0 fallidas**, incluidas las políticas distintas por tipo de archivo y los límites compartidos, y ese cambio ya está desplegado y probado en el clúster (sección 9.1). Falta probar el login válido, Apache con MISS/HIT y el acceso después de cerrar sesión con la caché del clúster conectada a la API real y el secreto compartido. Los pasos son los de la [sección 6.4](#64-desplegar-con-helm) con la configuración de Firebase; después, abrir el `Location` del `302` en el navegador, iniciar sesión con `prueba3` y repetir la petición con la cookie `zc_session`.
 
 ## 10. Estado de la implementación
 
-| Aspecto                  | Funciona | No funciona / limitaciones | Notas |
-| ------------------------ | -------- | -------------------------- | ----- |
-| DNS Interceptor          | Respuestas A según el país (IP to Country y EDNS Client Subnet), UDP y TCP, comodines, zona por defecto, respaldo de zonas por sondeo TCP, dominios verificados leídos del API (opcional), reenvío al DNS externo, despliegue con Helm que obtiene solo las IPs de las cachés, 185 pruebas unitarias | Solo IPv4. Con Docker Desktop el cliente llega con la IP del gateway (se prueba con EDNS Client Subnet) y el NodePort TCP no llega al equipo (se usa `port-forward`). La sincronización con el API no se probó en el cluster porque requiere el token real | Ver [dns-interceptor/README.md](dns-interceptor/README.md#qué-funciona-y-qué-no) |
-| Zonal Cache              | Servidor TCP con SSL termination, caché en disco con límites por dominio y por URL, LRU/LFU/FIFO/MRU/Random, TTL y política por tipo de archivo, autenticación pública, `x-api-key` y sesiones JWT, redirección al login, orígenes HTTP y HTTPS, recarga de configuración, un despliegue por zona | La lectura de la API real se probó solo desde una caché local; en el clúster las pruebas usan `values-local.yaml`. Sin keep-alive; no respeta `Vary` | Ver [zonal-cache/README.md](zonal-cache/README.md#9-estado) |
-| RestAPI Node.js / UI     | API y UI publicadas en Vercel; cuentas con Firebase Authentication; administración de dominios, reglas (públicas, API key o usuario y contraseña; tipo `*`), API keys y usuarios; TXT real verificado; configuración de cachés con Firestore; endpoint de login con JWT | Falta comprobar el login válido, MISS/HIT de Apache y cierre de sesión con la caché del clúster y el secreto compartido. Las reglas públicas y el tipo `*` están en el código pero aún no publicados en Vercel | Las pruebas unitarias simulan Firebase y DNS; las del panel usan Vercel y Firestore reales. Ver sección 9.2 y [Docs/Integracion.md](Docs/Integracion.md#9-pendientes) |
-| Rest API / Apache Server | GET, POST, PUT y DELETE en Java; HTML en Apache; ambos con Dockerfile, Helm y Docker Compose, probados a través de la caché | Los datos de la Rest API Java viven en memoria y se pierden al reiniciar el pod | — |
+| Aspecto                  | Funciona                                                                                                                                                                                                                                                                                             | No funciona / limitaciones                                                                                                                                                                                                                                 | Notas                                                                                                                                                                 |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| DNS Interceptor          | Respuestas A según el país (IP to Country y EDNS Client Subnet), UDP y TCP, comodines, zona por defecto, respaldo de zonas por sondeo TCP, dominios verificados leídos del API (opcional), reenvío al DNS externo, despliegue con Helm que obtiene solo las IPs de las cachés, 185 pruebas unitarias | Solo IPv4. Con Docker Desktop el cliente llega con la IP del gateway (se prueba con EDNS Client Subnet) y el NodePort TCP no llega al equipo (se usa `port-forward`). La sincronización con el API no se probó en el cluster porque requiere el token real | Ver [dns-interceptor/README.md](dns-interceptor/README.md#qué-funciona-y-qué-no)                                                                                      |
+| Zonal Cache              | Servidor TCP con SSL termination, caché en disco con límites por dominio y por URL, LRU/LFU/FIFO/MRU/Random, TTL y política por tipo de archivo, autenticación pública, `x-api-key` y sesiones JWT, redirección al login, orígenes HTTP y HTTPS, recarga de configuración, un despliegue por zona    | La lectura de la API real se probó solo desde una caché local; en el clúster las pruebas usan `values-local.yaml`. Sin keep-alive; no respeta `Vary`                                                                                                       | Ver [zonal-cache/README.md](zonal-cache/README.md#9-estado)                                                                                                           |
+| RestAPI Node.js / UI     | API y UI publicadas en Vercel; cuentas con Firebase Authentication; administración de dominios, reglas (públicas, API key o usuario y contraseña; tipo `*`), API keys y usuarios; TXT real verificado; configuración de cachés con Firestore; endpoint de login con JWT                              | Falta comprobar el login válido, MISS/HIT de Apache y cierre de sesión con la caché del clúster y el secreto compartido. Las reglas públicas y el tipo `*` están en el código pero aún no publicados en Vercel                                             | Las pruebas unitarias simulan Firebase y DNS; las del panel usan Vercel y Firestore reales. Ver sección 9.2 y [Docs/Integracion.md](Docs/Integracion.md#9-pendientes) |
+| Rest API / Apache Server | GET, POST, PUT y DELETE en Java; HTML en Apache; ambos con Dockerfile, Helm y Docker Compose, probados a través de la caché                                                                                                                                                                          | Los datos de la Rest API Java viven en memoria y se pierden al reiniciar el pod                                                                                                                                                                            | —                                                                                                                                                                     |
 
 ## 11. Conclusiones
 
@@ -665,29 +474,25 @@ Los reportes semanales se encuentran en [`Docs/Reportes/`](Docs/Reportes/).
 
 El uso de IA está regulado por el documento _Política para el Uso de Inteligencia Artificial Generativa_.
 
-| Herramienta | Para qué se usó | Cómo se verificó |
-| ----------- | --------------- | ---------------- |
+| Herramienta             | Para qué se usó                                                                                                                                                                                                                                                                                                                                                                                                                           | Cómo se verificó                                                                                                                                                                                                      |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Claude Code (Anthropic) | Análisis del avance contra el enunciado; corrección del comando del contenedor `certs` en `zonal-cache/docker-compose.yml` y del valor inicial del hash FNV-1a 64 en `zonal-cache/src/util.c`; script `deploy/test-k8s.sh` (incluidas las pruebas de DNS sobre TCP y respaldo de zonas); fusión de `feat/dns-interceptor`; reglas públicas y tipo `*` en `api-node/rules.js` y la UI; actualización de esta documentación y sus diagramas | Pruebas unitarias (102 de 102 en la caché, 185 de 185 en el DNS, 62 de 62 en el API), compilación de la UI, ejecución del script contra el cluster (50 de 50), `helm lint` de los cuatro charts y revisión del equipo |
-
 
 ## 15. Referencias y créditos
 
 El enunciado exige reconocer al autor de cualquier código o configuración tomado de Internet; usar código sin reconocimiento se considera copia.
 
-| Recurso | Autor / fuente | Dónde se usa |
-| ------- | -------------- | ------------ |
-| IP to Country Lite (CC BY 4.0) | [db-ip.com](https://db-ip.com) | `dns-interceptor/data/dbip-country-lite.csv.gz` |
-| cJSON (MIT) | Dave Gamble y colaboradores, [github.com/DaveGamble/cJSON](https://github.com/DaveGamble/cJSON) | Zonal Cache: JSON de configuración y JWT |
-| libcurl | Daniel Stenberg y colaboradores, [curl.se](https://curl.se/libcurl/) | Zonal Cache: peticiones al origen y al API |
-| OpenSSL (Apache 2.0) | OpenSSL Project, [openssl.org](https://www.openssl.org/) | Zonal Cache: TLS, SHA-256 y HMAC |
-| Apache HTTP Server (imagen `httpd`) | Apache Software Foundation | Servidor Apache de origen |
-| Eclipse Temurin (imagen) | Adoptium | Compilación y ejecución de la Rest API Java |
-| RFC 1035, RFC 2929, RFC 7766 (DNS sobre TCP), RFC 7871 (EDNS Client Subnet), RFC 7519 (JWT) | IETF | DNS Interceptor y autenticación de la caché |
-| Mermaid | Proyecto Mermaid, [mermaid.js.org](https://mermaid.js.org/) | Diagramas de esta documentación (GitHub los muestra como gráficos) |
-| Express, firebase-admin, React, Vite, Tailwind CSS | Sus respectivos autores (dependencias en `package.json`) | API Node.js y UI |
+| Recurso                                                                                     | Autor / fuente                                                                                  | Dónde se usa                                                       |
+| ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| IP to Country Lite (CC BY 4.0)                                                              | [db-ip.com](https://db-ip.com)                                                                  | `dns-interceptor/data/dbip-country-lite.csv.gz`                    |
+| cJSON (MIT)                                                                                 | Dave Gamble y colaboradores, [github.com/DaveGamble/cJSON](https://github.com/DaveGamble/cJSON) | Zonal Cache: JSON de configuración y JWT                           |
+| libcurl                                                                                     | Daniel Stenberg y colaboradores, [curl.se](https://curl.se/libcurl/)                            | Zonal Cache: peticiones al origen y al API                         |
+| OpenSSL (Apache 2.0)                                                                        | OpenSSL Project, [openssl.org](https://www.openssl.org/)                                        | Zonal Cache: TLS, SHA-256 y HMAC                                   |
+| Apache HTTP Server (imagen `httpd`)                                                         | Apache Software Foundation                                                                      | Servidor Apache de origen                                          |
+| Eclipse Temurin (imagen)                                                                    | Adoptium                                                                                        | Compilación y ejecución de la Rest API Java                        |
+| RFC 1035, RFC 2929, RFC 7766 (DNS sobre TCP), RFC 7871 (EDNS Client Subnet), RFC 7519 (JWT) | IETF                                                                                            | DNS Interceptor y autenticación de la caché                        |
+| Mermaid                                                                                     | Proyecto Mermaid, [mermaid.js.org](https://mermaid.js.org/)                                     | Diagramas de esta documentación (GitHub los muestra como gráficos) |
+| Express, firebase-admin, React, Vite, Tailwind CSS                                          | Sus respectivos autores (dependencias en `package.json`)                                        | API Node.js y UI                                                   |
 
 Las librerías se instalan como dependencias o paquetes del sistema; no se copió su código.
 
----
-
-**Fechas importantes:** entrega el **03/11/2026** antes de medianoche (tar.gz + enlace al repositorio) · evaluación presencial el **10/11/2026**.
